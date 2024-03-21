@@ -8,12 +8,13 @@ This is the code repo for [CacheGen: Fast Context Loading for Language Model App
 ```
 conda env create --name cachegenenv --file env.yml
 ```
-2. Build the GPU-version Arithmetic coding decoder
+2. Build the GPU-version Arithmetic Coding (AC) decoder 
 ```
 cd src/decoder
 python setup.py install
 ```
 
+GPU-version AC encoder will come soon!
 
 
 ## References
