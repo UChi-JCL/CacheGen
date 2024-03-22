@@ -18,6 +18,12 @@ GPU-version AC encoder will come soon!
 
 
 ## Example run
+To generate the KV cache given a text file, run
+```
+LAYERS=32 CHANNELS=4096 python main.py --generate_kv --path 7k_prompts/1.txt
+```
+
+
 To run encoding and decoding for a LongChat-7b model
 ```
 mkdir data
