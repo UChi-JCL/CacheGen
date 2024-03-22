@@ -17,6 +17,18 @@ python setup.py install
 GPU-version AC encoder will come soon!
 
 
+## Example run
+To run encoding and decoding for a LongChat-7b model
+```
+mkdir data
+
+LAYERS=32 CHANNELS=4096 python main.py
+
+```
+Where ``LAYERS`` is the number of layers in the LLM, and ``CHANNELS`` is the number of channels in the LLM.
+
+
+
 ## References
 
 ```
@@ -29,3 +41,5 @@ GPU-version AC encoder will come soon!
       primaryClass={cs.NI}
 }
 ```
+
+## FAQs
