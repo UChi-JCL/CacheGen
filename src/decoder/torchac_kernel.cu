@@ -415,7 +415,7 @@ torch::Tensor decode(torch::Tensor out_tensor, const at::Tensor &cdf,
     cudaEventRecord(stop3, 0);
     cudaEventSynchronize(stop3);
     cudaEventElapsedTime(&elapsedTime1, start3, stop3);
-    std::cout << "time taken for the loop: " << elapsedTime1 << " ms" << std::endl;
+    // std::cout << "time taken for the loop: " << elapsedTime1 << " ms" << std::endl;
 
 
 
@@ -434,7 +434,7 @@ torch::Tensor decode(torch::Tensor out_tensor, const at::Tensor &cdf,
     cudaEventRecord(start2, 0);
 
     const auto cdf_ptr = get_cdf_ptr_cuda(cdf);
-    std::cout << "N_sym: " << cdf_ptr.N_sym << std::endl;
+    // std::cout << "N_sym: " << cdf_ptr.N_sym << std::endl;
 
     float elapsedTime;
     // std::cout << "Start Length: " << tot_length << std::endl
@@ -455,7 +455,7 @@ torch::Tensor decode(torch::Tensor out_tensor, const at::Tensor &cdf,
     cudaEventRecord(stop2, 0);
     cudaEventSynchronize(stop2);
     cudaEventElapsedTime(&elapsedTime1, start2, stop2);
-    std::cout << "time taken to move data third: " << elapsedTime1 << " ms" << std::endl;
+    // std::cout << "time taken to move data third: " << elapsedTime1 << " ms" << std::endl;
 
 
     cudaEvent_t start, stop;
@@ -477,7 +477,7 @@ torch::Tensor decode(torch::Tensor out_tensor, const at::Tensor &cdf,
     cudaEventElapsedTime(&elapsedTime, start, stop);
     cudaFree(d_str);
     cudaFree(cdf_data);
-    std::cout << "Time taken by decode_cuda kernels: " << elapsedTime << " ms" << std::endl;
+    // std::cout << "Time taken by decode_cuda kernels: " << elapsedTime << " ms" << std::endl;
 
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
