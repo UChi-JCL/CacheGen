@@ -20,7 +20,7 @@ GPU-version AC encoder will come soon!
 ## Example run
 To generate the KV cache given a text file, run
 ```
-LAYERS=32 CHANNELS=4096 python main.py --generate_kv --path 9k_prompts/1.txt --save_dir /tmp/yuhanl/data
+LAYERS=32 CHANNELS=4096 python main.py --generate_kv --path 9k_prompts/1.txt --save_dir <PATH TO YOUR HOME DIRECTORY>
 ```
 
 
@@ -28,7 +28,7 @@ To run encoding and decoding for a LongChat-7b model
 ```
 mkdir data
 
-THREADS=128 BLOCKS=32 LAYERS=32 CHANNELS=4096 python main.py --path 9k_prompts/1.txt --save_dir /tmp/yuhanl/data
+THREADS=128 BLOCKS=32 LAYERS=32 CHANNELS=4096 python main.py --path 9k_prompts/1.txt --save_dir <PATH TO YOUR HOME DIRECTORY>
 
 ```
 Where ``LAYERS`` is the number of layers in the LLM, and ``CHANNELS`` is the number of channels in the LLM.
