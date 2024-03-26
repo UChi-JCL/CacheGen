@@ -6,7 +6,7 @@ This is the code repo for [CacheGen: Fast Context Loading for Language Model App
 
 1. To install the required **python** packages to run CacheGen with conda
 ```
-conda env create --name cachegenenv --file env.yml
+conda env create -f env.yml 
 ```
 2. Build the GPU-version Arithmetic Coding (AC) decoder 
 ```
