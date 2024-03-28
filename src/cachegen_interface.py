@@ -7,10 +7,12 @@ import os
 import torchac_cuda
 import torchac
 import time
+from src.server.client import *
+
 from src.encoder.encoder import CacheGenEncoder
 from transformers import AutoModelForCausalLM, AutoTokenizer
 KVCache: TypeAlias = Tuple[Tuple[torch.Tensor]]
-CHUNK_SIZE = 8000
+CHUNK_SIZE = 4000
 def _renorm_cast_cdf_(cdf, precision):
     Lp = cdf.shape[-1]
     finals = 1  # NHW1
@@ -66,7 +68,7 @@ class CacheGenEngine:
     """
 
     def __init__(self, *args, **kwargs):
-        self.model = AutoModelForCausalLM.from_pretrained(kwargs['model'], load_in_8bit=True)
+        self.model = kwargs['model']
         self.input_id_to_k = {}
         self.input_id_to_v = {} 
         l = int(os.environ['LAYERS'])
@@ -105,7 +107,7 @@ class CacheGenEngine:
             True if the input ids is in the cache gen engine, False otherwise
         """
         # TODO: maybe do the "prefix check" here
-        if (input_hash, chunk_id) in self.input_id_to_k:
+        if (input_hash, chunk_id) in self.max_tensors_k:
             return True
         return False
 
@@ -143,57 +145,57 @@ class CacheGenEngine:
         input_ids_hash = self.input_ids_to_key(input_ids[0])
         configs = []
         for i in range(0, self.N, CHUNK_SIZE):
-            if i + CHUNK_SIZE < self.N:
-                if self.contains(input_ids_hash, i//CHUNK_SIZE):
-                    # kv = pickle.load(open("data/test_kv.pkl", "rb") )
-                    # kv_tuple = split_kv(kv, CHUNK_SIZE)[0]
-                    # del kv
+            if self.contains(input_ids_hash, i//CHUNK_SIZE):
+                # kv = pickle.load(open("data/test_kv.pkl", "rb") )
+                # kv_tuple = split_kv(kv, CHUNK_SIZE)[0]
+                # del kv
+                target_latency = 0.2
+                encoded_keys = send_request(0, 0, 0, 0, target_latency)  
+                # encoded_keys = self.input_id_to_k[(input_ids_hash, i//CHUNK_SIZE)]
+                cdf_key = self.k_cdf
+                target_latency = 0.2
+                encoded_values = send_request(0, 0, 0, 1, target_latency)
+                # encoded_values = self.input_id_to_v[(input_ids_hash, i//CHUNK_SIZE)]
+                cdf_value = self.v_cdf
+                # output_tensor = torch.zeros((CHUNK_SIZE, self.l * self.c )).cuda().to(torch.int32)
+                st = time.monotonic()
+                torchac_cuda.decode(self.output_tensor[0], cdf_key.unsqueeze(0), \
+                    encoded_keys, CHUNK_SIZE, 20, CHUNK_SIZE//20)
+                
+                key = self.output_tensor[0].reshape((CHUNK_SIZE, self.l, self.c)).permute(1, 0, 2)
+                del self.output_tensor[0]
+                torchac_cuda.decode(self.output_tensor[0], cdf_value.unsqueeze(0), \
+                    encoded_values, CHUNK_SIZE, 20, CHUNK_SIZE//20)
+                print(f"Decoding time: {time.monotonic() - st}")
+                value = self.output_tensor[0].reshape((CHUNK_SIZE, self.l, self.c)).permute(1, 0, 2)
+                key = key.half()
+                value = value.half()  
+                # sanity =  torch.load("sanity.pt")    
+                for l in range(key.shape[0]):
+                    if l < 10:
+                        os.environ['BINS'] = "32"
+                    elif l < 20:
+                        os.environ['BINS'] = "16"
+                    else:
+                        os.environ['BINS'] = "16"
+                    key[l] = vectorwise_quant(key[l] - int(os.environ['BINS']) // 2 + 1, \
+                        self.max_tensors_k[(input_ids_hash, i)][l, i:i+CHUNK_SIZE].cuda()).clone()
                     
-                    encoded_keys = self.input_id_to_k[(input_ids_hash, i//CHUNK_SIZE)]
-                    cdf_key = self.k_cdf
+                    # key[l] = kv_tuple[l][0].permute((0, 2, 1, 3)).reshape((CHUNK_SIZE, self.block* self.thread))
                     
-                    encoded_values = self.input_id_to_v[(input_ids_hash, i//CHUNK_SIZE)]
-                    cdf_value = self.v_cdf
-                    # output_tensor = torch.zeros((CHUNK_SIZE, self.l * self.c )).cuda().to(torch.int32)
-                    st = time.monotonic()
-                    torchac_cuda.decode(self.output_tensor[0], cdf_key.unsqueeze(0), \
-                        encoded_keys, CHUNK_SIZE, 20, CHUNK_SIZE//20)
-                    print(f"Decoding time: {time.monotonic() - st}")
-                    key = self.output_tensor[0].reshape((CHUNK_SIZE, self.l, self.c)).permute(1, 0, 2)
-                    del self.output_tensor[0]
-                    torchac_cuda.decode(self.output_tensor[0], cdf_value.unsqueeze(0), \
-                        encoded_values, CHUNK_SIZE, 20, CHUNK_SIZE//20)
-                    value = self.output_tensor[0].reshape((CHUNK_SIZE, self.l, self.c)).permute(1, 0, 2)
-                    key = key.half()
-                    value = value.half()  
-                    # sanity =  torch.load("sanity.pt")    
-                    for l in range(key.shape[0]):
-                        if l < 10:
-                            os.environ['BINS'] = "32"
-                        elif l < 20:
-                            os.environ['BINS'] = "32"
-                        else:
-                            os.environ['BINS'] = "32"
-                        key[l] = vectorwise_quant(key[l] - int(os.environ['BINS']) // 2 + 1, \
-                            self.max_tensors_k[(input_ids_hash, i)][l, i:i+CHUNK_SIZE].cuda()).clone()
-                        
-                        # key[l] = kv_tuple[l][0].permute((0, 2, 1, 3)).reshape((CHUNK_SIZE, self.block* self.thread))
-                        
-                    for l in range(value.shape[0]):
-                        if l < 2:
-                            os.environ['BINS'] = "32"
-                        else:
-                            os.environ['BINS'] = "16"
-                        value[l] = vectorwise_quant(value[l] - (int(os.environ['BINS']) // 2- 1), \
-                            self.max_tensors_v[(input_ids_hash, i)][l, i:i+CHUNK_SIZE].clone().cuda()).clone()
-                        # value[l] = kv_tuple[l][1].permute((0, 2, 1, 3)).reshape((CHUNK_SIZE, self.block* self.thread))
-                    kv_tuple = self.transformer_kv_to_tuple(key, value)
-                    configs.append(CacheGenConfig(i, i + CHUNK_SIZE, True, kv_tuple))
-                    del self.output_tensor
-                else:
-                    configs.append(CacheGenConfig(i, i + CHUNK_SIZE, False, input_ids[:, i:i+CHUNK_SIZE]))
+                for l in range(value.shape[0]):
+                    if l < 2:
+                        os.environ['BINS'] = "32"
+                    else:
+                        os.environ['BINS'] = "16"
+                    value[l] = vectorwise_quant(value[l] - (int(os.environ['BINS']) // 2- 1), \
+                        self.max_tensors_v[(input_ids_hash, i)][l, i:i+CHUNK_SIZE].clone().cuda()).clone()
+                    # value[l] = kv_tuple[l][1].permute((0, 2, 1, 3)).reshape((CHUNK_SIZE, self.block* self.thread))
+                kv_tuple = self.transformer_kv_to_tuple(key, value)
+                configs.append(CacheGenConfig(i, i + CHUNK_SIZE, True, kv_tuple))
+                del self.output_tensor
             else:
-                configs.append(CacheGenConfig(i, self.N-1, False, input_ids[:, i:self.N-1]))
+                configs.append(CacheGenConfig(i, i + CHUNK_SIZE, False, input_ids[:, i:i+CHUNK_SIZE]))
         return configs
     def transformer_kv_to_tuple(self, key, value):
         """ Field:
@@ -226,14 +228,14 @@ class CacheGenEngine:
                 concat_tensor = torch.cat((concat_tensor, \
                     dict1[i].unsqueeze(0)), dim=0)
         return concat_tensor
-    def cdf_helper(self, encoder, start_layer, end_layer, is_key, start_index=0):
+    def cdf_helper(self, encoder, start_layer, end_layer, is_key, start_index=0, config=None):
         """ Field:
         - start_layer: the start layer to compute the CDF
         - end_layer: the end layer to compute the CDF
         - is_key: a boolean value, indicating if it's key or value
         """
         cdf = encoder.compute_cdf(start_layer=start_layer, end_layer=end_layer, \
-            is_key=is_key)
+            is_key=is_key, config=config)
         # TODO
         if is_key:
             self.k_cdf[start_layer:end_layer, :, :cdf.shape[-1]] = cdf
@@ -245,22 +247,22 @@ class CacheGenEngine:
             if cdf.shape[-1] < 33:
                 # Fill the later half to 1
                 self.v_cdf[start_layer:end_layer, :, cdf.shape[-1]:] = 1
-    def encoder_helper(self, encoder, is_key, start_index):
+    def encoder_helper(self, encoder, is_key, start_index, config=None):
         bitstreams = []
         if is_key:
             cdfs = self.k_cdf
             # encode_input = self.concat_dict(encoder.quantized_key, 0, 3) 
-            encode_input = self.concat_dict(encoder.quantized_key, 0, 10) 
+            encode_input = self.concat_dict(encoder.quantized_key, 0, config["key_first_layers"]) 
             encode_input = torch.cat((encode_input, \
-                self.concat_dict(encoder.quantized_key, 10, 20) ), dim=0)
+                self.concat_dict(encoder.quantized_key, config["key_first_layers"], config["key_second_layers"]) ), dim=0)
             encode_input = torch.cat((encode_input, \
-                self.concat_dict(encoder.quantized_key, 20, self.l) ), dim=0)
+                self.concat_dict(encoder.quantized_key, config["key_second_layers"], self.l) ), dim=0)
             
         else:
             cdfs = self.v_cdf
-            encode_input = self.concat_dict(encoder.quantized_value, 0, 2) 
+            encode_input = self.concat_dict(encoder.quantized_value, 0, config['value_first_layers']) 
             encode_input = torch.cat((encode_input, \
-                self.concat_dict(encoder.quantized_value, 2, self.l) ), dim=0) 
+                self.concat_dict(encoder.quantized_value, config["value_first_layers"], self.l) ), dim=0) 
         
         print("Start encoding")
         for i in range(CHUNK_SIZE * start_index, CHUNK_SIZE * (start_index + 1)):
@@ -280,7 +282,7 @@ class CacheGenEngine:
             maxes.append(max1[i].unsqueeze(0))
         return torch.cat(maxes, dim=0)
         
-    def set(self, input_ids: torch.Tensor, kv: KVCache):
+    def set(self, input_ids: torch.Tensor, kv: KVCache, quantization_config: dict):
         """
         Set the model-generated KV cache for a given input ids
         input_ids: a torch.Tensor whose shape of (1, N) elements. We assume that there is NO batching dimension
@@ -292,31 +294,26 @@ class CacheGenEngine:
         input_id_hash = self.input_ids_to_key(input_ids)
         fp_k, fp_v = self.transform_tuple_to_tensors(kv)
         encoder = CacheGenEncoder(fp_k=fp_k, fp_v=fp_v)
-        encoder.quantize()
-        self.cdf_helper(encoder, 0, 10, True)
-        self.cdf_helper(encoder, 10, 20, True)
-        self.cdf_helper(encoder, 20, 32, True)
-        self.cdf_helper(encoder, 0, 2, False)
-        self.cdf_helper(encoder, 2, 32, False)
+        encoder.quantize(config=quantization_config)
+        self.cdf_helper(encoder, 0, quantization_config["key_first_layers"], True, 0, quantization_config)
+        self.cdf_helper(encoder, quantization_config["key_first_layers"], self.l, True, 0, quantization_config)
+        self.cdf_helper(encoder, 0, quantization_config["value_first_layers"], False, 0, quantization_config)
+        self.cdf_helper(encoder,  quantization_config["value_first_layers"], self.l, False, 0, quantization_config)
         pickle.dump(self.concat_max(encoder.max_tensors_key), open(f"{os.environ['TMP_DIR']}/test_max_k.pkl", "wb"))
-        bitstreams = self.encoder_helper(encoder, True, 0)
+        bitstreams = self.encoder_helper(encoder, True, 0, quantization_config)
         pickle.dump(self.concat_max(encoder.max_tensors_value), open(f"{os.environ['TMP_DIR']}/test_max_v.pkl", "wb"))
         pickle.dump(bitstreams, open(f"{os.environ['TMP_DIR']}/test_bits_k.pkl", "wb"))
         self.input_id_to_k[(input_id_hash, 0)] = bitstreams
-        bitstreams = self.encoder_helper(encoder, False, 0)
+        bitstreams = self.encoder_helper(encoder, False, 0, quantization_config)
 
         pickle.dump(bitstreams, open(f"{os.environ['TMP_DIR']}/test_bits_v.pkl", "wb"))
         pickle.dump(self.k_cdf, open(f"{os.environ['TMP_DIR']}/test_cdf_k.pkl", "wb"))
         pickle.dump(self.v_cdf, open(f"{os.environ['TMP_DIR']}/test_cdf_v.pkl", "wb"))
         
-        bitstreams_k = pickle.load(open(f"{os.environ['TMP_DIR']}/test_bits_k.pkl", "rb"))
-        bitstreams_v = pickle.load(open(f"{os.environ['TMP_DIR']}/test_bits_v.pkl", "rb"))
         self.k_cdf = pickle.load(open(f"{os.environ['TMP_DIR']}/test_cdf_k.pkl", "rb"))
         self.v_cdf = pickle.load(open(f"{os.environ['TMP_DIR']}/test_cdf_v.pkl", "rb"))
         self.k_cdf = _renorm_cast_cdf_(self.k_cdf.float(), 16)
         self.v_cdf = _renorm_cast_cdf_(self.v_cdf.float(), 16)
-        self.input_id_to_k[(input_id_hash, 0)] = bitstreams_k
-        self.input_id_to_v[(input_id_hash, 0)] = bitstreams_v
         self.max_tensors_k[(input_id_hash, 0)] = pickle.load(open(f"{os.environ['TMP_DIR']}/test_max_k.pkl", "rb"))
         self.max_tensors_v[(input_id_hash, 0)] = pickle.load(open(f"{os.environ['TMP_DIR']}/test_max_v.pkl", "rb"))
     def merge_kv(self, input_ids: torch.Tensor):
@@ -371,12 +368,12 @@ class CacheGenController:
         """
         return self.engine.get(input_ids)
     
-    def set(self, input_ids: torch.Tensor, kv: KVCache):
+    def set(self, input_ids: torch.Tensor, kv: KVCache, quantization_config: dict):
         """
         Set the model-generated KV cache for a given input ids
         This interface is for potential CacheGen functionalities
         """
-        self.engine.set(input_ids, kv)  
+        self.engine.set(input_ids, kv, quantization_config)  
 
     @classmethod
     def GetInstance(cls, *args, **kwargs):
