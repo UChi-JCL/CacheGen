@@ -475,9 +475,10 @@ torch::Tensor decode(torch::Tensor out_tensor, const at::Tensor &cdf,
     cudaEventSynchronize(stop);
 
     cudaEventElapsedTime(&elapsedTime, start, stop);
+    std::cout << "Time taken by decode_cuda kernels: " << elapsedTime << " ms" << std::endl;
+
     cudaFree(d_str);
     cudaFree(cdf_data);
-    // std::cout << "Time taken by decode_cuda kernels: " << elapsedTime << " ms" << std::endl;
 
     cudaEventDestroy(start);
     cudaEventDestroy(stop);
