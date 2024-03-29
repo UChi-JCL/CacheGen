@@ -27,7 +27,7 @@ __host__ __device__ cdf_t binsearch_cuda(cdf_t *cdf, cdf_t target, cdf_t max_sym
     while (left + 1 < right)
     { // ?
         // left and right will be < 0x10000 in practice, so left+right fits in uint16_t...
-        const auto m = static_cast<const cdf_t>((left + right) / 2);
+        const auto m = static_cast<cdf_t>((left + right) / 2);
         const auto v = cdf[offset + m];
         // printf("Index: %d\n", offset + m);
         if (v < target)
@@ -328,31 +328,6 @@ std::string to_string(const T &object)
     return ss.str();
 }
 
-void concat_str( std::vector<std::string> &stringList, const std::string& filePath)
-{
-    std::string concatenatedString;
-    std::cout << "all_tokens: " << stringList.size() << std::endl;
-    for (const auto &str : stringList)
-    {
-        concatenatedString += str;
-    }
-    std::cout << "Done all_tokens: " << stringList.size() << std::endl;
-    
-    std::ofstream outFile(filePath, std::ios::binary);
-
-    // Check if the file stream is open and ready
-    if (!outFile.is_open()) {
-        std::cerr << "Failed to open file for writing: " << filePath << std::endl;
-        return;
-    }
-
-    // Write the string to the file
-    outFile.write(concatenatedString.data(), concatenatedString.size());
-
-    // Close the file stream
-    outFile.close();
-    // return concatenatedString;
-}
 std::string formatIntegerTo4BitChars(unsigned int value) {
     std::string result;
     for (int i = 0; i < 8; ++i) { // Process each 4-bit nibble
@@ -491,5 +466,4 @@ namespace py = pybind11;
 
 PYBIND11_MODULE(torchac_cuda, m) {
     m.def("decode", &decode, "decode function");
-    m.def("concat_str", &concat_str, "concat_str function");
 }

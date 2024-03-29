@@ -31,7 +31,7 @@ if __name__ == "__main__":
             num_gpus=args.num_gpus,
             max_gpu_memory=f"{args.max_gpu_memory}GiB",
             load_8bit=True,
-            cpu_offloading=True,
+            cpu_offloading=False,
             debug=False,
         )
     tokenizer = AutoTokenizer.from_pretrained(args.model_id)
@@ -41,7 +41,7 @@ if __name__ == "__main__":
     if args.generate_kv:
         with open(args.path, "r") as f:
             text = f.read()
-        input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()[:, :4000]
+        input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()
         st = time.monotonic()
         # with profile(activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
         #     # with profile(activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
@@ -50,7 +50,15 @@ if __name__ == "__main__":
         generated = model.generate(input_ids, max_new_tokens = 1, return_dict_in_generate=True)
         torch.cuda.synchronize()
         print( f"TTFT: {time.monotonic() - st}" )
-        pickle.dump(generated['past_key_values'], open(f"{args.save_dir}/test_kv.pkl", "wb"))
+        kv = generated['past_key_values']
+        kv = list(kv)
+        for i in range(len(kv)):
+            kv[i] = list(kv[i])
+            kv[i][0] = kv[i][0].cpu()
+            kv[i][1] = kv[i][1].cpu()
+            kv[i] = tuple(kv[i])
+        kv = tuple(kv)
+        pickle.dump(kv, open(f"{args.save_dir}/test_kv.pkl", "wb"))
     elif args.vanilla:
         # model = AutoModelForCausalLM.from_pretrained(args.model_id, load_in_8bit=True)
         # model.eval()
@@ -61,7 +69,7 @@ if __name__ == "__main__":
         for _ in range(5):
             # st = time.monotonic()
             with torch.no_grad():
-                input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()[:, :2000]
+                input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()
                 generated = model.generate(input_ids, max_new_tokens = 2)
             # print( f"TTFT: {time.monotonic() - st}" )
         print("output: ", tokenizer.decode(generated[0][-10:]))
@@ -71,21 +79,23 @@ if __name__ == "__main__":
     else:
         with open(args.path, "r") as f:
             text = f.read()
-        input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()[:, :4000]
+        input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()
         os.environ['TOKENS'] = str(input_ids.shape[1])
-        cachegen_controller = CacheGenController(model=model)
-        orig_kv_cache = pickle.load(open("data/test_kv.pkl", "rb"))
-        
         quantization_config = json.load(open(args.quantization_config, "r"))
+        
+        cachegen_controller = CacheGenController(model=model, config=quantization_config)
+        orig_kv_cache = pickle.load(open(f"{args.save_dir}/test_kv.pkl", "rb"))
+        
         cachegen_controller.set(input_ids[0], orig_kv_cache, quantization_config)
+        cachegen_controller.set(input_ids[0], orig_kv_cache, quantization_config, offline=False)
         # cachegen_controller.get(input_ids[0])
         
         for _ in range(1):
             st = time.monotonic()
             merged_kv = cachegen_controller.engine.merge_kv(input_ids=input_ids)
             print(f"Total time: {time.monotonic() - st}")
-        input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()[:, :4001]
-        output = cachegen_controller.engine.model.generate(input_ids=input_ids, \
-            past_key_values=merged_kv, max_new_tokens=20)
-        print(tokenizer.decode(output[0][-20:]))
+        # input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()[:, :4001]
+        # output = cachegen_controller.engine.model.generate(input_ids=input_ids, \
+        #     past_key_values=merged_kv, max_new_tokens=20)
+        # print(tokenizer.decode(output[0][-20:]))
         

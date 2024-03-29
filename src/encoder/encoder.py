@@ -24,6 +24,7 @@ class CacheGenEncoder:
         self.max_tensors_key = {}  
         self.quantized_value = {}
         self.max_tensors_value = {} 
+        self.config = kwargs["config"]
         
     def quantize(self, config):
         """ Quantize the key and value tensors 
@@ -31,21 +32,21 @@ class CacheGenEncoder:
         """
         for layer in range(len(self.fp_k)):
             
-            if layer < config["key_first_layers"]:
-                os.environ['BINS'] = "32"
+            if layer < self.config["key_first_layers"]:
+                os.environ['BINS'] = self.config["key_first_bins"]
                 
             elif layer < config["key_second_layers"]:
-                os.environ['BINS'] = "16"
+                os.environ['BINS'] = self.config["key_second_bins"]
             else:
-                os.environ['BINS'] = "16"
+                os.environ['BINS'] = self.config["key_third_bins"]
             tmp = torch_quant(self.fp_k[layer].float())
             self.quantized_key[layer] = tmp[0] + int(os.environ['BINS']) // 2 - 1
             self.max_tensors_key[layer] = tmp[1]
         for layer in range(len(self.fp_v)):
             if layer < config["value_first_layers"]:
-                os.environ['BINS'] = "32"
+                os.environ['BINS'] = self.config["value_first_bins"]
             else:
-                os.environ['BINS'] = "16"
+                os.environ['BINS'] = self.config["value_second_bins"]
             tmp = torch_quant(self.fp_v[layer].float())
             self.quantized_value[layer] = tmp[0]+ int(os.environ['BINS']) // 2 - 1
             self.max_tensors_value[layer] = tmp[1]
@@ -62,17 +63,18 @@ class CacheGenEncoder:
         tokens = self.fp_k[0].shape[0]
         if is_key:
             if end_layer <= config["key_first_layers"]:
-                os.environ['BINS'] = "32"
+                os.environ['BINS'] = self.config["key_first_bins"]
             elif end_layer <= config["key_second_layers"]:
-                os.environ['BINS'] = "16"
+                os.environ['BINS'] = self.config["key_second_bins"]
             else:
-                os.environ['BINS'] = "16"
+                os.environ['BINS'] = self.config["key_third_bins"]
         else:
             if end_layer <= config["value_first_layers"]:
-                os.environ['BINS'] = "32"
+                os.environ['BINS'] = self.config["value_first_bins"]
             else:
-                os.environ['BINS'] = "16"
+                os.environ['BINS'] = self.config["value_second_bins"]
         final_cdf = torch.zeros(end_layer - start_layer, channels, int(os.environ['BINS'] ) + 1)
+        
         for i in range(end_layer - start_layer):
             print("layer", i)
             for j in range(channels):
@@ -81,6 +83,8 @@ class CacheGenEncoder:
                     tmp_input = self.quantized_key[i + start_layer][:, j]
                 else:
                     tmp_input = self.quantized_value[i + start_layer][:, j]
+                # if end_layer == 40:
+                #     breakpoint()
                 symbs_orig, unique_tensor = torch.tensor(tmp_input).unique(return_counts=True)
                 output_cdf = torch.zeros(int(os.environ['BINS']) )
                 output_cdf[symbs_orig.long()] = unique_tensor.float()

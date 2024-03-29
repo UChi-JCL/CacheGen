@@ -5,7 +5,7 @@
     "value_first_layers": 10,
     "key_first_bins": "32",
     "key_second_bins": "16", 
-    "key_third_bins": "16",
+    "key_third_bins": "8",
     "value_first_bins": "32",
-    "value_second_bins": "16"
+    "value_second_bins": "8"
 }

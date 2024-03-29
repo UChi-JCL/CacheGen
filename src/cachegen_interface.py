@@ -12,7 +12,7 @@ from src.server.client import *
 from src.encoder.encoder import CacheGenEncoder
 from transformers import AutoModelForCausalLM, AutoTokenizer
 KVCache: TypeAlias = Tuple[Tuple[torch.Tensor]]
-CHUNK_SIZE = 4000
+CHUNK_SIZE = 9000
 def _renorm_cast_cdf_(cdf, precision):
     Lp = cdf.shape[-1]
     finals = 1  # NHW1
@@ -74,7 +74,7 @@ class CacheGenEngine:
         l = int(os.environ['LAYERS'])
         c = int(os.environ['CHANNELS'])
         N = int(os.environ['TOKENS'])
-        self.output_tensor = [torch.zeros((CHUNK_SIZE, l * c )).cuda().to(torch.int32) for _ in range(2)]
+        self.output_tensor = [torch.zeros((CHUNK_SIZE, l * c )).cuda().to(torch.int32) for i in range(2)]
         self.thread = int(os.environ['THREADS'])
         self.block = int(os.environ['BLOCKS'])
         print("Initializing the CDFs")
@@ -86,6 +86,7 @@ class CacheGenEngine:
         print("Done")
         self.max_tensors_k = {}
         self.max_tensors_v = {}
+        self.config = kwargs['config']
         
 
     def input_ids_to_key(self, input_ids: torch.Tensor) -> str:
@@ -172,22 +173,22 @@ class CacheGenEngine:
                 value = value.half()  
                 # sanity =  torch.load("sanity.pt")    
                 for l in range(key.shape[0]):
-                    if l < 10:
-                        os.environ['BINS'] = "32"
-                    elif l < 20:
-                        os.environ['BINS'] = "16"
+                    if l < self.config["key_first_layers"]:
+                        os.environ['BINS'] = self.config["key_first_bins"]
+                    elif l < self.config["key_second_layers"]:
+                        os.environ['BINS'] = self.config["key_second_bins"]
                     else:
-                        os.environ['BINS'] = "16"
+                        os.environ['BINS'] = self.config["key_third_bins"]
                     key[l] = vectorwise_quant(key[l] - int(os.environ['BINS']) // 2 + 1, \
                         self.max_tensors_k[(input_ids_hash, i)][l, i:i+CHUNK_SIZE].cuda()).clone()
                     
                     # key[l] = kv_tuple[l][0].permute((0, 2, 1, 3)).reshape((CHUNK_SIZE, self.block* self.thread))
                     
                 for l in range(value.shape[0]):
-                    if l < 2:
-                        os.environ['BINS'] = "32"
+                    if l < self.config["value_first_layers"]:
+                        os.environ['BINS'] = self.config["value_first_bins"]
                     else:
-                        os.environ['BINS'] = "16"
+                        os.environ['BINS'] = self.config["value_second_bins"]
                     value[l] = vectorwise_quant(value[l] - (int(os.environ['BINS']) // 2- 1), \
                         self.max_tensors_v[(input_ids_hash, i)][l, i:i+CHUNK_SIZE].clone().cuda()).clone()
                     # value[l] = kv_tuple[l][1].permute((0, 2, 1, 3)).reshape((CHUNK_SIZE, self.block* self.thread))
@@ -282,7 +283,7 @@ class CacheGenEngine:
             maxes.append(max1[i].unsqueeze(0))
         return torch.cat(maxes, dim=0)
         
-    def set(self, input_ids: torch.Tensor, kv: KVCache, quantization_config: dict):
+    def set(self, input_ids: torch.Tensor, kv: KVCache, quantization_config: dict, offline=True):
         """
         Set the model-generated KV cache for a given input ids
         input_ids: a torch.Tensor whose shape of (1, N) elements. We assume that there is NO batching dimension
@@ -293,29 +294,33 @@ class CacheGenEngine:
         # TODO: replace with GPU-encoder here 
         input_id_hash = self.input_ids_to_key(input_ids)
         fp_k, fp_v = self.transform_tuple_to_tensors(kv)
-        encoder = CacheGenEncoder(fp_k=fp_k, fp_v=fp_v)
+        encoder = CacheGenEncoder(fp_k=fp_k, fp_v=fp_v, config=self.config)
         encoder.quantize(config=quantization_config)
-        self.cdf_helper(encoder, 0, quantization_config["key_first_layers"], True, 0, quantization_config)
-        self.cdf_helper(encoder, quantization_config["key_first_layers"], self.l, True, 0, quantization_config)
-        self.cdf_helper(encoder, 0, quantization_config["value_first_layers"], False, 0, quantization_config)
-        self.cdf_helper(encoder,  quantization_config["value_first_layers"], self.l, False, 0, quantization_config)
-        pickle.dump(self.concat_max(encoder.max_tensors_key), open(f"{os.environ['TMP_DIR']}/test_max_k.pkl", "wb"))
-        bitstreams = self.encoder_helper(encoder, True, 0, quantization_config)
-        pickle.dump(self.concat_max(encoder.max_tensors_value), open(f"{os.environ['TMP_DIR']}/test_max_v.pkl", "wb"))
-        pickle.dump(bitstreams, open(f"{os.environ['TMP_DIR']}/test_bits_k.pkl", "wb"))
-        self.input_id_to_k[(input_id_hash, 0)] = bitstreams
-        bitstreams = self.encoder_helper(encoder, False, 0, quantization_config)
+        if offline:
+            self.cdf_helper(encoder, 0, quantization_config["key_first_layers"], True, 0, quantization_config)
+            self.cdf_helper(encoder, quantization_config["key_first_layers"], quantization_config["key_second_layers"], True, 0, quantization_config)
+            self.cdf_helper(encoder, quantization_config["key_second_layers"], self.l, True, 0, quantization_config)
+            
+            self.cdf_helper(encoder, 0, quantization_config["value_first_layers"], False, 0, quantization_config)
+            self.cdf_helper(encoder,  quantization_config["value_first_layers"], self.l, False, 0, quantization_config)
+            pickle.dump(self.concat_max(encoder.max_tensors_key), open(f"{os.environ['TMP_DIR']}/test_max_k.pkl", "wb"))
+            bitstreams = self.encoder_helper(encoder, True, 0, quantization_config)
+            pickle.dump(self.concat_max(encoder.max_tensors_value), open(f"{os.environ['TMP_DIR']}/test_max_v.pkl", "wb"))
+            pickle.dump(bitstreams, open(f"{os.environ['TMP_DIR']}/test_bits_k.pkl", "wb"))
+            self.input_id_to_k[(input_id_hash, 0)] = bitstreams
+            bitstreams = self.encoder_helper(encoder, False, 0, quantization_config)
 
-        pickle.dump(bitstreams, open(f"{os.environ['TMP_DIR']}/test_bits_v.pkl", "wb"))
-        pickle.dump(self.k_cdf, open(f"{os.environ['TMP_DIR']}/test_cdf_k.pkl", "wb"))
-        pickle.dump(self.v_cdf, open(f"{os.environ['TMP_DIR']}/test_cdf_v.pkl", "wb"))
-        
-        self.k_cdf = pickle.load(open(f"{os.environ['TMP_DIR']}/test_cdf_k.pkl", "rb"))
-        self.v_cdf = pickle.load(open(f"{os.environ['TMP_DIR']}/test_cdf_v.pkl", "rb"))
-        self.k_cdf = _renorm_cast_cdf_(self.k_cdf.float(), 16)
-        self.v_cdf = _renorm_cast_cdf_(self.v_cdf.float(), 16)
-        self.max_tensors_k[(input_id_hash, 0)] = pickle.load(open(f"{os.environ['TMP_DIR']}/test_max_k.pkl", "rb"))
-        self.max_tensors_v[(input_id_hash, 0)] = pickle.load(open(f"{os.environ['TMP_DIR']}/test_max_v.pkl", "rb"))
+            pickle.dump(bitstreams, open(f"{os.environ['TMP_DIR']}/test_bits_v.pkl", "wb"))
+            pickle.dump(self.k_cdf, open(f"{os.environ['TMP_DIR']}/test_cdf_k.pkl", "wb"))
+            pickle.dump(self.v_cdf, open(f"{os.environ['TMP_DIR']}/test_cdf_v.pkl", "wb"))
+        else:
+            self.k_cdf = pickle.load(open(f"{os.environ['TMP_DIR']}/test_cdf_k.pkl", "rb"))
+            self.v_cdf = pickle.load(open(f"{os.environ['TMP_DIR']}/test_cdf_v.pkl", "rb"))
+            
+            self.k_cdf = _renorm_cast_cdf_(self.k_cdf.float(), 16)
+            self.v_cdf = _renorm_cast_cdf_(self.v_cdf.float(), 16)
+            self.max_tensors_k[(input_id_hash, 0)] = pickle.load(open(f"{os.environ['TMP_DIR']}/test_max_k.pkl", "rb"))
+            self.max_tensors_v[(input_id_hash, 0)] = pickle.load(open(f"{os.environ['TMP_DIR']}/test_max_v.pkl", "rb"))
     def merge_kv(self, input_ids: torch.Tensor):
         """
         Perform inference on the input_ids
@@ -368,12 +373,12 @@ class CacheGenController:
         """
         return self.engine.get(input_ids)
     
-    def set(self, input_ids: torch.Tensor, kv: KVCache, quantization_config: dict):
+    def set(self, input_ids: torch.Tensor, kv: KVCache, quantization_config: dict, offline=True):
         """
         Set the model-generated KV cache for a given input ids
         This interface is for potential CacheGen functionalities
         """
-        self.engine.set(input_ids, kv, quantization_config)  
+        self.engine.set(input_ids, kv, quantization_config, offline)  
 
     @classmethod
     def GetInstance(cls, *args, **kwargs):
