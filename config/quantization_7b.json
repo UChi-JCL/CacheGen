@@ -1,0 +1,11 @@
+{
+    "key_first_layers": 10, 
+    "key_second_layers": 20,
+    "key_third_layers": 32,
+    "value_first_layers": 2,
+    "key_first_bins": "32",
+    "key_second_bins": "16", 
+    "key_third_bins": "16",
+    "value_first_bins": "32",
+    "value_second_bins": "16"
+}
