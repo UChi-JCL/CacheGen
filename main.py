@@ -70,11 +70,11 @@ if __name__ == "__main__":
             # st = time.monotonic()
             with torch.no_grad():
                 input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()
-                generated = model.generate(input_ids, max_new_tokens = 2)
+                generated = model.generate(input_ids, max_new_tokens = 10)
             # print( f"TTFT: {time.monotonic() - st}" )
         print("output: ", tokenizer.decode(generated[0][-10:]))
         # Dump the generated output to output directory
-        with open(f"{args.results_dir}/output_{args.doc_id}.txt", "w") as f:
+        with open(f"{args.results_dir}/gt_{args.doc_id}.txt", "w") as f:
             f.write(tokenizer.decode(generated[0][-10:]))
     else:
         with open(args.path, "r") as f:
@@ -94,8 +94,10 @@ if __name__ == "__main__":
             st = time.monotonic()
             merged_kv = cachegen_controller.engine.merge_kv(input_ids=input_ids)
             print(f"Total time: {time.monotonic() - st}")
-        # input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()[:, :4001]
-        # output = cachegen_controller.engine.model.generate(input_ids=input_ids, \
-        #     past_key_values=merged_kv, max_new_tokens=20)
-        # print(tokenizer.decode(output[0][-20:]))
+        input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()
+        output = cachegen_controller.engine.model.generate(input_ids=input_ids, \
+            past_key_values=merged_kv, max_new_tokens=10)
+        print(tokenizer.decode(output[0][-10:]))
+        with open(f"{args.results_dir}/cachegen_{args.doc_id}.txt", "w") as f:
+            f.write(tokenizer.decode(output[0][-10:]))
         

@@ -12,7 +12,7 @@ from src.server.client import *
 from src.encoder.encoder import CacheGenEncoder
 from transformers import AutoModelForCausalLM, AutoTokenizer
 KVCache: TypeAlias = Tuple[Tuple[torch.Tensor]]
-CHUNK_SIZE = 9000
+CHUNK_SIZE = 6000
 def _renorm_cast_cdf_(cdf, precision):
     Lp = cdf.shape[-1]
     finals = 1  # NHW1
@@ -151,12 +151,12 @@ class CacheGenEngine:
                 # kv_tuple = split_kv(kv, CHUNK_SIZE)[0]
                 # del kv
                 target_latency = 0.2
-                encoded_keys = send_request(0, 0, 0, 0, target_latency)  
-                # encoded_keys = self.input_id_to_k[(input_ids_hash, i//CHUNK_SIZE)]
+                # encoded_keys = send_request(0, 0, 0, 0, target_latency)  
+                encoded_keys = self.input_id_to_k[(input_ids_hash, i//CHUNK_SIZE)]
                 cdf_key = self.k_cdf
                 target_latency = 0.2
-                encoded_values = send_request(0, 0, 0, 1, target_latency)
-                # encoded_values = self.input_id_to_v[(input_ids_hash, i//CHUNK_SIZE)]
+                # encoded_values = send_request(0, 0, 0, 1, target_latency)
+                encoded_values = self.input_id_to_v[(input_ids_hash, i//CHUNK_SIZE)]
                 cdf_value = self.v_cdf
                 # output_tensor = torch.zeros((CHUNK_SIZE, self.l * self.c )).cuda().to(torch.int32)
                 st = time.monotonic()
@@ -196,7 +196,7 @@ class CacheGenEngine:
                 configs.append(CacheGenConfig(i, i + CHUNK_SIZE, True, kv_tuple))
                 del self.output_tensor
             else:
-                configs.append(CacheGenConfig(i, i + CHUNK_SIZE, False, input_ids[:, i:i+CHUNK_SIZE]))
+                configs.append(CacheGenConfig(i, min(self.N-1, i+CHUNK_SIZE) , False, input_ids[:, i:min(self.N-1, i+CHUNK_SIZE)]))
         return configs
     def transformer_kv_to_tuple(self, key, value):
         """ Field:
@@ -264,7 +264,6 @@ class CacheGenEngine:
             encode_input = self.concat_dict(encoder.quantized_value, 0, config['value_first_layers']) 
             encode_input = torch.cat((encode_input, \
                 self.concat_dict(encoder.quantized_value, config["value_first_layers"], self.l) ), dim=0) 
-        
         print("Start encoding")
         for i in range(CHUNK_SIZE * start_index, CHUNK_SIZE * (start_index + 1)):
             bitstreams.append(torchac.encode_float_cdf(cdfs.float(), \
@@ -319,6 +318,8 @@ class CacheGenEngine:
             
             self.k_cdf = _renorm_cast_cdf_(self.k_cdf.float(), 16)
             self.v_cdf = _renorm_cast_cdf_(self.v_cdf.float(), 16)
+            self.input_id_to_k[(input_id_hash, 0)] = pickle.load(open(f"{os.environ['TMP_DIR']}/test_bits_k.pkl", "rb"))
+            self.input_id_to_v[(input_id_hash, 0)] = pickle.load(open(f"{os.environ['TMP_DIR']}/test_bits_v.pkl", "rb"))
             self.max_tensors_k[(input_id_hash, 0)] = pickle.load(open(f"{os.environ['TMP_DIR']}/test_max_k.pkl", "rb"))
             self.max_tensors_v[(input_id_hash, 0)] = pickle.load(open(f"{os.environ['TMP_DIR']}/test_max_v.pkl", "rb"))
     def merge_kv(self, input_ids: torch.Tensor):
