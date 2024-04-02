@@ -51,7 +51,7 @@ class CacheGenEncoder:
             self.quantized_value[layer] = tmp[0]+ int(os.environ['BINS']) // 2 - 1
             self.max_tensors_value[layer] = tmp[1]
             
-    def compute_cdf(self, start_layer, end_layer, is_key, config):
+    def compute_cdf(self, is_key, config):
         """
         Compute the CDF based on the quantized tensors
         Field: 
@@ -61,37 +61,49 @@ class CacheGenEncoder:
         # TODO: Add start_index here
         channels = self.fp_k[0].shape[-1]
         tokens = self.fp_k[0].shape[0]
-        if is_key:
-            if end_layer <= config["key_first_layers"]:
-                os.environ['BINS'] = self.config["key_first_bins"]
-            elif end_layer <= config["key_second_layers"]:
-                os.environ['BINS'] = self.config["key_second_bins"]
-            else:
-                os.environ['BINS'] = self.config["key_third_bins"]
-        else:
-            if end_layer <= config["value_first_layers"]:
-                os.environ['BINS'] = self.config["value_first_bins"]
-            else:
-                os.environ['BINS'] = self.config["value_second_bins"]
-        final_cdf = torch.zeros(end_layer - start_layer, channels, int(os.environ['BINS'] ) + 1)
+        # if is_key:
+        #     if end_layer <= config["key_first_layers"]:
+        #         os.environ['BINS'] = self.config["key_first_bins"]
+        #     elif end_layer <= config["key_second_layers"]:
+        #         os.environ['BINS'] = self.config["key_second_bins"]
+        #     else:
+        #         os.environ['BINS'] = self.config["key_third_bins"]
+        # else:
+        #     if end_layer <= config["value_first_layers"]:
+        #         os.environ['BINS'] = self.config["value_first_bins"]
+        #     else:
+        #         os.environ['BINS'] = self.config["value_second_bins"]
+        final_cdf = torch.ones(len(self.fp_k), channels, 33)
         
-        for i in range(end_layer - start_layer):
-            print("layer", i)
+        for i in range(len(self.fp_k)):
+            # print("layer", i)
+            if is_key:
+                if i < config["key_first_layers"]:
+                    os.environ['BINS'] = self.config["key_first_bins"]
+                elif i < config["key_second_layers"]:
+                    os.environ['BINS'] = self.config["key_second_bins"]
+                else:
+                    os.environ['BINS'] = self.config["key_third_bins"]
+            else:
+                if i < config["value_first_layers"]:
+                    os.environ['BINS'] = self.config["value_first_bins"]
+                else:
+                    os.environ['BINS'] = self.config["value_second_bins"]
             for j in range(channels):
                 
                 if is_key:
-                    tmp_input = self.quantized_key[i + start_layer][:, j]
+                    tmp_input = self.quantized_key[i ][:, j]
                 else:
-                    tmp_input = self.quantized_value[i + start_layer][:, j]
+                    tmp_input = self.quantized_value[i][:, j]
                 # if end_layer == 40:
                 #     breakpoint()
                 symbs_orig, unique_tensor = torch.tensor(tmp_input).unique(return_counts=True)
-                output_cdf = torch.zeros(int(os.environ['BINS']) )
+                output_cdf = torch.zeros(32)
                 output_cdf[symbs_orig.long()] = unique_tensor.float()
                 output = output_cdf / output_cdf.sum()
                 output = torch.cumsum(output_cdf ,dim=-1) / max(torch.cumsum(output_cdf , dim=-1))
                 output =  torch.cat((torch.tensor([0.0]), output))
-                final_cdf[i, j] = output
+                final_cdf[i, j, :] = output
                 
                 
         return final_cdf

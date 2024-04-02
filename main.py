@@ -85,18 +85,25 @@ if __name__ == "__main__":
         
         cachegen_controller = CacheGenController(model=model, config=quantization_config)
         orig_kv_cache = pickle.load(open(f"{args.save_dir}/test_kv.pkl", "rb"))
+        # orig_kv_cache = pickle.load(open(f"tmp.pkl", "rb"))
+        # cachegen_controller.set(input_ids[0], orig_kv_cache, quantization_config)
+        # cachegen_controller.set(input_ids[0], orig_kv_cache, quantization_config, offline=False)
+        # # cachegen_controller.get(input_ids[0])
         
-        cachegen_controller.set(input_ids[0], orig_kv_cache, quantization_config)
-        cachegen_controller.set(input_ids[0], orig_kv_cache, quantization_config, offline=False)
-        # cachegen_controller.get(input_ids[0])
-        
-        for _ in range(1):
-            st = time.monotonic()
-            merged_kv = cachegen_controller.engine.merge_kv(input_ids=input_ids)
-            print(f"Total time: {time.monotonic() - st}")
+        # for _ in range(1):
+        #     st = time.monotonic()
+        #     merged_kv = cachegen_controller.engine.merge_kv(input_ids=input_ids)
+        #     print(f"Total time: {time.monotonic() - st}")
+        kv = list(orig_kv_cache)
+        for i in range(len(kv)):
+            kv[i] = list(kv[i])
+            kv[i][0] = kv[i][0].cuda()[:, :, :-1]
+            kv[i][1] = kv[i][1].cuda()[:, :, :-1]
+            kv[i] = tuple(kv[i])
+        kv = tuple(kv)
         input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()
         output = cachegen_controller.engine.model.generate(input_ids=input_ids, \
-            past_key_values=merged_kv, max_new_tokens=10)
+            past_key_values=kv, max_new_tokens=10)
         print(tokenizer.decode(output[0][-10:]))
         with open(f"{args.results_dir}/cachegen_{args.doc_id}.txt", "w") as f:
             f.write(tokenizer.decode(output[0][-10:]))

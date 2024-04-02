@@ -97,13 +97,14 @@ const struct cdf_ptr get_cdf_ptr_cuda(const at::Tensor &cdf)
 // __host__ __device__  void f(
 __global__ void decode_with_cuda_kernel(
     // int* out_arr, char* in, const int size_in, const cdf_t* cdf, const int N_sym, const int Lp ) {
-    int *out_arr, char *in, const int size_in, cdf_t *cdf, const int N_sym, const int Lp, const char *start_indices)
+    int *out_arr, char *in, const int size_in, cdf_t *cdf, const int N_sym, const int Lp, int *start_index_arr_device)
 {
     int start_index = blockIdx.x * blockDim.x + threadIdx.x;
-    char* tmpStart = (char*)malloc(8 * sizeof(char));
-    deviceStrcpyFromIndex(tmpStart, start_indices, start_index * 8);
-    uint from_index = parseHexToUint(tmpStart);
+    // char* tmpStart = (char*)malloc(8 * sizeof(char));
+    // deviceStrcpyFromIndex(tmpStart, start_indices, start_index * 8);
+    // uint from_index = parseHexToUint(tmpStart);
     // printf("start_index: %d, from_index: %d\n", start_index, from_index);
+    int from_index = start_index_arr_device[start_index];
     const int max_symbol = Lp - 2;
 
     int out = 0;
@@ -340,8 +341,126 @@ std::string formatIntegerTo4BitChars(unsigned int value) {
     }
     return result;
 }
-torch::Tensor decode(torch::Tensor out_tensor, const at::Tensor &cdf,
-                     std::vector<std::string> &stringList, const int all_tokens, 
+// torch::Tensor decode(torch::Tensor out_tensor, const at::Tensor &cdf,
+//                      std::vector<std::string> &stringList, const int all_tokens, 
+//                      const int blockNum, const int threadNum)
+// {
+//     /* Decode a list of strings using the given CDF with CUDA kernels.
+//      * Args:
+//      *     out_tensor: A tensor of shape (all_tokens, N_sym) to store the decoded symbols, NEEDS to be on CUDA. 
+//      *     cdf: A tensor of shape (1, N_sym, Lp) containing the CDF.
+//      *     stringList: A list of bitstreams to decode.
+//      *     all_tokens: The total number of tokens in the list of strings.
+//      *     blockNum: The number of blocks to use for the kernel.
+//      *     threadNum: The number of threads to use for the kernel.
+//      * Returns:
+//      *     A tensor of shape (all_tokens, N_sym) containing the decoded symbols. 
+//     */
+
+//     // const std::string& in) {
+//     // int tot_length = concatenatedString.length();
+//     std::cout << "all_tokens: " << all_tokens << std::endl;
+//     int *start_index = new int[all_tokens];
+//     start_index[0] = 0;
+//     std::string concatenatedString;
+//     int tot_length = 0;
+//     int cnt = 0;
+
+    
+//     cudaEvent_t start3;
+//     cudaEventCreate(&start3);
+//     cudaEventRecord(start3, 0);
+//     std::string concatStart;
+//     float elapsedTime1;
+//     for (const auto &str : stringList)
+//     {
+//         int start = concatenatedString.length();
+//         concatenatedString += str;
+//         int end = concatenatedString.length(); // End position is exclusive
+//         start_index[cnt] = start;
+//         // std::cout << "start: " << start_index[cnt]  << " end: " << end_index[cnt] << std::endl;
+//         tot_length += str.length();
+//         std::string formattedString = formatIntegerTo4BitChars(start);
+//          // append format string to concatStart
+//         concatStart += formattedString;
+//         cnt += 1;
+//     }
+    
+
+//     cudaEvent_t stop3;
+//     cudaEventCreate(&stop3);
+//     cudaEventRecord(stop3, 0);
+//     cudaEventSynchronize(stop3);
+//     cudaEventElapsedTime(&elapsedTime1, start3, stop3);
+//     std::cout << "time taken for moving data: " << elapsedTime1 << " ms" << std::endl;
+//     std::cout << "legnth of concatStart: " << concatenatedString.length() << std::endl;
+
+
+//     char *d_str;
+//     cudaMalloc((void **)&d_str, tot_length * sizeof(char));
+//     cudaMemcpy(d_str, concatenatedString.c_str(), tot_length * sizeof(char), cudaMemcpyHostToDevice);
+
+
+//     char *d_str_start;
+//     cudaMalloc((void **)&d_str_start, concatStart.length() * sizeof(char));
+//     cudaMemcpy(d_str_start, concatStart.c_str(),  concatStart.length()  * sizeof(char), cudaMemcpyHostToDevice);
+
+
+    
+//     cudaEvent_t start2, stop2;
+//     cudaEventCreate(&start2);
+//     cudaEventRecord(start2, 0);
+
+//     const auto cdf_ptr = get_cdf_ptr_cuda(cdf);
+//     // std::cout << "N_sym: " << cdf_ptr.N_sym << std::endl;
+
+//     float elapsedTime;
+//     // std::cout << "Start Length: " << tot_length << std::endl
+
+    
+//     cdf_t *cdf_data;
+//     size_t size_cdf = cdf_ptr.N_sym * cdf_ptr.Lp * sizeof(cdf_t); // Calculate the size of the array.
+//     cudaMalloc(&cdf_data, size_cdf);
+//     cudaMemcpy(cdf_data, cdf_ptr.data, size_cdf, cudaMemcpyHostToDevice);
+//     // std::cout << "nsymbols " << cdf_ptr.N_sym << std::endl;
+
+    
+//     // torch::Tensor out_tensor = torch::zeros(
+//     //     {all_tokens, cdf_ptr.N_sym}, torch::kInt32).to(torch::kCUDA);
+//     int *out_arr = out_tensor.data_ptr<int>();
+
+
+//     cudaEvent_t start, stop;
+//     cudaEventCreate(&start);
+//     cudaEventRecord(start, 0);
+
+
+//     decode_with_cuda_kernel<<<blockNum, threadNum>>>(out_arr, d_str, tot_length, cdf_data, cdf_ptr.N_sym, cdf_ptr.Lp, d_str_start);
+
+//     cudaError_t err = cudaGetLastError();
+//     if (err != cudaSuccess)
+//     {
+//         printf("Kernel launch error: %s\n", cudaGetErrorString(err));
+//     }
+//     cudaEventCreate(&stop);
+//     cudaEventRecord(stop, 0);
+//     cudaEventSynchronize(stop);
+
+//     cudaEventElapsedTime(&elapsedTime, start, stop);
+//     std::cout << "Time taken by decode_cuda kernels: " << elapsedTime << " ms" << std::endl;
+
+//     cudaFree(d_str);
+//     cudaFree(cdf_data);
+
+//     cudaEventDestroy(start);
+//     cudaEventDestroy(stop);
+
+//     return out_tensor;
+
+// }
+
+torch::Tensor decode_fast(torch::Tensor out_tensor, const at::Tensor &cdf,
+                     std::string concated_string, std::vector<int> start_indices, const int all_tokens, 
                      const int blockNum, const int threadNum)
 {
     /* Decode a list of strings using the given CDF with CUDA kernels.
@@ -358,49 +477,38 @@ torch::Tensor decode(torch::Tensor out_tensor, const at::Tensor &cdf,
 
     // const std::string& in) {
     // int tot_length = concatenatedString.length();
-    std::cout << "all_tokens: " << all_tokens << std::endl;
-    int *start_index = new int[all_tokens];
-    start_index[0] = 0;
-    std::string concatenatedString;
     int tot_length = 0;
     int cnt = 0;
 
-    cudaEvent_t start3;
-    cudaEventCreate(&start3);
-    cudaEventRecord(start3, 0);
+    
+    
+  
+    tot_length = concated_string.length();
+    char *d_str;
+    cudaMalloc((void **)&d_str, tot_length * sizeof(char));
+    cudaMemcpy(d_str, concated_string.c_str() , tot_length * sizeof(char), cudaMemcpyHostToDevice);
 
+    
+    // cudaEvent_t start3;
+    // cudaEventCreate(&start3);
+    // cudaEventRecord(start3, 0);
     std::string concatStart;
     float elapsedTime1;
-    for (const auto &str : stringList)
-    {
-        int start = concatenatedString.length();
-        concatenatedString += str;
-        int end = concatenatedString.length(); // End position is exclusive
-        start_index[cnt] = start;
-        // std::cout << "start: " << start_index[cnt]  << " end: " << end_index[cnt] << std::endl;
-        tot_length += str.length();
-        std::string formattedString = formatIntegerTo4BitChars(start);
-         // append format string to concatStart
-        concatStart += formattedString;
-        cnt += 1;
-    }
-    
-    cudaEvent_t stop3;
-    cudaEventCreate(&stop3);
-    cudaEventRecord(stop3, 0);
-    cudaEventSynchronize(stop3);
-    cudaEventElapsedTime(&elapsedTime1, start3, stop3);
-    // std::cout << "time taken for the loop: " << elapsedTime1 << " ms" << std::endl;
+    int *start_index_arr_device;
+    cudaMalloc((void **)&start_index_arr_device, start_indices.size() * sizeof(int));
+    cudaMemcpy(start_index_arr_device, start_indices.data(), start_indices.size() * sizeof(int), cudaMemcpyHostToDevice);
 
 
-
-     char *d_str;
-    cudaMalloc((void **)&d_str, tot_length * sizeof(char));
-    cudaMemcpy(d_str, concatenatedString.c_str(), tot_length * sizeof(char), cudaMemcpyHostToDevice);
-    
     char *d_str_start;
     cudaMalloc((void **)&d_str_start, concatStart.length() * sizeof(char));
     cudaMemcpy(d_str_start, concatStart.c_str(),  concatStart.length()  * sizeof(char), cudaMemcpyHostToDevice);
+
+    // cudaEvent_t stop3;
+    // cudaEventCreate(&stop3);
+    // cudaEventRecord(stop3, 0);
+    // cudaEventSynchronize(stop3);
+    // cudaEventElapsedTime(&elapsedTime1, start3, stop3);
+    // std::cout << "time taken for moving data: " << elapsedTime1 << " ms" << std::endl;
 
 
     
@@ -419,51 +527,39 @@ torch::Tensor decode(torch::Tensor out_tensor, const at::Tensor &cdf,
     size_t size_cdf = cdf_ptr.N_sym * cdf_ptr.Lp * sizeof(cdf_t); // Calculate the size of the array.
     cudaMalloc(&cdf_data, size_cdf);
     cudaMemcpy(cdf_data, cdf_ptr.data, size_cdf, cudaMemcpyHostToDevice);
-    // std::cout << "nsymbols " << cdf_ptr.N_sym << std::endl;
-
-
-    // torch::Tensor out_tensor = torch::zeros(
-    //     {all_tokens, cdf_ptr.N_sym}, torch::kInt32).to(torch::kCUDA);
+    
     int *out_arr = out_tensor.data_ptr<int>();
+    
+
+    // cudaEvent_t start, stop;
+    // cudaEventCreate(&start);
+    // cudaEventRecord(start, 0);
+
+
+    decode_with_cuda_kernel<<<blockNum, threadNum>>>(out_arr, d_str, tot_length, cdf_data, cdf_ptr.N_sym, cdf_ptr.Lp, start_index_arr_device);
 
     cudaEventCreate(&stop2);
     cudaEventRecord(stop2, 0);
     cudaEventSynchronize(stop2);
     cudaEventElapsedTime(&elapsedTime1, start2, stop2);
-    // std::cout << "time taken to move data third: " << elapsedTime1 << " ms" << std::endl;
+    std::cout << "time taken for compute data: " << elapsedTime << " ms" << std::endl;
 
-
-    cudaEvent_t start, stop;
-    cudaEventCreate(&start);
-    cudaEventRecord(start, 0);
-
-
-    decode_with_cuda_kernel<<<blockNum, threadNum>>>(out_arr, d_str, tot_length, cdf_data, cdf_ptr.N_sym, cdf_ptr.Lp, d_str_start);
-
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess)
-    {
-        printf("Kernel launch error: %s\n", cudaGetErrorString(err));
-    }
-    cudaEventCreate(&stop);
-    cudaEventRecord(stop, 0);
-    cudaEventSynchronize(stop);
-
-    cudaEventElapsedTime(&elapsedTime, start, stop);
-    std::cout << "Time taken by decode_cuda kernels: " << elapsedTime << " ms" << std::endl;
 
     cudaFree(d_str);
     cudaFree(cdf_data);
 
-    cudaEventDestroy(start);
-    cudaEventDestroy(stop);
+    // cudaEventDestroy(start);
+    // cudaEventDestroy(stop);
 
     return out_tensor;
 
 }
 
+
+
 namespace py = pybind11;
 
 PYBIND11_MODULE(torchac_cuda, m) {
-    m.def("decode", &decode, "decode function");
+    // m.def("decode", &decode, "decode function");
+    m.def("decode_fast", &decode_fast, "Fast decode function");
 }

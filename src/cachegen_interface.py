@@ -70,11 +70,12 @@ class CacheGenEngine:
     def __init__(self, *args, **kwargs):
         self.model = kwargs['model']
         self.input_id_to_k = {}
+        self.input_id_to_start_indices = {}
         self.input_id_to_v = {} 
         l = int(os.environ['LAYERS'])
         c = int(os.environ['CHANNELS'])
         N = int(os.environ['TOKENS'])
-        self.output_tensor = [torch.zeros((CHUNK_SIZE, l * c )).cuda().to(torch.int32) for i in range(2)]
+        self.output_tensor = torch.zeros((CHUNK_SIZE,2 * l * c )).cuda().to(torch.int32)
         self.thread = int(os.environ['THREADS'])
         self.block = int(os.environ['BLOCKS'])
         print("Initializing the CDFs")
@@ -154,23 +155,22 @@ class CacheGenEngine:
                 # encoded_keys = send_request(0, 0, 0, 0, target_latency)  
                 encoded_keys = self.input_id_to_k[(input_ids_hash, i//CHUNK_SIZE)]
                 cdf_key = self.k_cdf
-                target_latency = 0.2
-                # encoded_values = send_request(0, 0, 0, 1, target_latency)
-                encoded_values = self.input_id_to_v[(input_ids_hash, i//CHUNK_SIZE)]
                 cdf_value = self.v_cdf
-                # output_tensor = torch.zeros((CHUNK_SIZE, self.l * self.c )).cuda().to(torch.int32)
-                st = time.monotonic()
-                torchac_cuda.decode(self.output_tensor[0], cdf_key.unsqueeze(0), \
-                    encoded_keys, CHUNK_SIZE, 20, CHUNK_SIZE//20)
+                cdf = torch.cat((self.k_cdf, self.v_cdf), dim=0)    
                 
-                key = self.output_tensor[0].reshape((CHUNK_SIZE, self.l, self.c)).permute(1, 0, 2)
-                del self.output_tensor[0]
-                torchac_cuda.decode(self.output_tensor[0], cdf_value.unsqueeze(0), \
-                    encoded_values, CHUNK_SIZE, 20, CHUNK_SIZE//20)
-                print(f"Decoding time: {time.monotonic() - st}")
-                value = self.output_tensor[0].reshape((CHUNK_SIZE, self.l, self.c)).permute(1, 0, 2)
-                key = key.half()
-                value = value.half()  
+                # encoded_values = send_request(0, 0, 0, 1, target_latency)
+                # encoded_values = self.input_id_to_v[(input_ids_hash, i//CHUNK_SIZE)]
+                # cdf_value = self.v_cdf
+                # output_tensor = torch.zeros((CHUNK_SIZE, self.l * self.c )).cuda().to(torch.int32)
+                for _ in range(5):
+                    st = time.monotonic()
+                    torchac_cuda.decode_fast(self.output_tensor, cdf.unsqueeze(0), \
+                        encoded_keys, self.input_id_to_start_indices[(input_ids_hash, i//CHUNK_SIZE)], CHUNK_SIZE, 20, CHUNK_SIZE//20)
+                    
+                    print(f"Decoding time: {time.monotonic() - st}")
+                kv = self.output_tensor.reshape((CHUNK_SIZE, 2, self.l, self.c)).permute(1, 2, 0, 3)
+                key = kv[0].half()
+                value = kv[1].half()  
                 # sanity =  torch.load("sanity.pt")    
                 for l in range(key.shape[0]):
                     if l < self.config["key_first_layers"]:
@@ -229,50 +229,74 @@ class CacheGenEngine:
                 concat_tensor = torch.cat((concat_tensor, \
                     dict1[i].unsqueeze(0)), dim=0)
         return concat_tensor
-    def cdf_helper(self, encoder, start_layer, end_layer, is_key, start_index=0, config=None):
+    def cdf_helper(self, encoder,  is_key, start_index=0, config=None):
         """ Field:
         - start_layer: the start layer to compute the CDF
         - end_layer: the end layer to compute the CDF
         - is_key: a boolean value, indicating if it's key or value
         """
-        cdf = encoder.compute_cdf(start_layer=start_layer, end_layer=end_layer, \
-            is_key=is_key, config=config)
+        cdf = encoder.compute_cdf(is_key=is_key, config=config)
         # TODO
         if is_key:
-            self.k_cdf[start_layer:end_layer, :, :cdf.shape[-1]] = cdf
+            self.k_cdf[:,  :, :cdf.shape[-1]] = cdf
             if cdf.shape[-1] < 33:
                 # Fill the later half to 1
-                self.k_cdf[start_layer:end_layer, :, cdf.shape[-1]:] = 1
+                self.k_cdf[:, :, cdf.shape[-1]:] = 1
         else:
-            self.v_cdf[start_layer:end_layer, :, :cdf.shape[-1]] = cdf
+            self.v_cdf[:, :, :cdf.shape[-1]] = cdf
             if cdf.shape[-1] < 33:
                 # Fill the later half to 1
-                self.v_cdf[start_layer:end_layer, :, cdf.shape[-1]:] = 1
+                self.v_cdf[:, :, cdf.shape[-1]:] = 1
     def encoder_helper(self, encoder, is_key, start_index, config=None):
+        """ Encode the input tensor using the AC encoder
+        Field:
+        - encoder: the encoder object
+        - start_index: the start token index to encode
+        - is_key: a boolean value, indicating if it's key or value
+        """
         bitstreams = []
-        if is_key:
-            cdfs = self.k_cdf
-            # encode_input = self.concat_dict(encoder.quantized_key, 0, 3) 
-            encode_input = self.concat_dict(encoder.quantized_key, 0, config["key_first_layers"]) 
-            encode_input = torch.cat((encode_input, \
-                self.concat_dict(encoder.quantized_key, config["key_first_layers"], config["key_second_layers"]) ), dim=0)
-            encode_input = torch.cat((encode_input, \
-                self.concat_dict(encoder.quantized_key, config["key_second_layers"], self.l) ), dim=0)
+        # if is_key:
+        #     cdfs = self.k_cdf
+        #     # encode_input = self.concat_dict(encoder.quantized_key, 0, 3) 
+        #     encode_input = self.concat_dict(encoder.quantized_key, 0, config["key_first_layers"]) 
+        #     encode_input = torch.cat((encode_input, \
+        #         self.concat_dict(encoder.quantized_key, config["key_first_layers"], config["key_second_layers"]) ), dim=0)
+        #     encode_input = torch.cat((encode_input, \
+        #         self.concat_dict(encoder.quantized_key, config["key_second_layers"], self.l) ), dim=0)
             
-        else:
-            cdfs = self.v_cdf
-            encode_input = self.concat_dict(encoder.quantized_value, 0, config['value_first_layers']) 
-            encode_input = torch.cat((encode_input, \
-                self.concat_dict(encoder.quantized_value, config["value_first_layers"], self.l) ), dim=0) 
+        # else:
+        #     cdfs = self.v_cdf
+        #     encode_input = self.concat_dict(encoder.quantized_value, 0, config['value_first_layers']) 
+        #     encode_input = torch.cat((encode_input, \
+        #         self.concat_dict(encoder.quantized_value, config["value_first_layers"], self.l) ), dim=0) 
+        cdf_key = self.k_cdf
+        encode_input_key = self.concat_dict(encoder.quantized_key, 0, config["key_first_layers"]) 
+        encode_input_key = torch.cat((encode_input_key, \
+            self.concat_dict(encoder.quantized_key, config["key_first_layers"], config["key_second_layers"]) ), dim=0)
+        encode_input_key = torch.cat((encode_input_key, \
+            self.concat_dict(encoder.quantized_key, config["key_second_layers"], self.l) ), dim=0)
         print("Start encoding")
+        encode_input_value = self.concat_dict(encoder.quantized_value, 0, config['value_first_layers']) 
+        encode_input_value = torch.cat((encode_input_value, \
+            self.concat_dict(encoder.quantized_value, config["value_first_layers"], self.l) ), dim=0) 
+        cdf = torch.cat((self.k_cdf, self.v_cdf), dim=0)
+        encode_input = torch.cat((encode_input_key, encode_input_value), dim=0)
         for i in range(CHUNK_SIZE * start_index, CHUNK_SIZE * (start_index + 1)):
-            bitstreams.append(torchac.encode_float_cdf(cdfs.float(), \
+            bitstreams.append(torchac.encode_float_cdf(cdf.float(), \
                 encode_input[:, i].to(torch.int16) ))
             # output_tensor = torch.zeros((1, self.l * self.c )).cuda().to(torch.int32)
             # cdf_norm = _renorm_cast_cdf_(cdfs.float(), 16)
             # torchac_cuda.decode(output_tensor, \
             #     cdf_norm.unsqueeze(0), bitstreams, 1, 1, 1 )
-        return bitstreams
+        concat_string = b""
+        start_indices =[]
+        for i in range(len(bitstreams)):
+            if i % 100 == 0:
+                print('Encoding:', i)
+            start_indices += [len(concat_string)]
+            concat_string += bitstreams[i]
+            
+        return concat_string, start_indices
     def concat_max(self, max1):
         """
         Given a dict of max tensors, concatenate them into a single tensor
@@ -296,30 +320,25 @@ class CacheGenEngine:
         encoder = CacheGenEncoder(fp_k=fp_k, fp_v=fp_v, config=self.config)
         encoder.quantize(config=quantization_config)
         if offline:
-            self.cdf_helper(encoder, 0, quantization_config["key_first_layers"], True, 0, quantization_config)
-            self.cdf_helper(encoder, quantization_config["key_first_layers"], quantization_config["key_second_layers"], True, 0, quantization_config)
-            self.cdf_helper(encoder, quantization_config["key_second_layers"], self.l, True, 0, quantization_config)
-            
-            self.cdf_helper(encoder, 0, quantization_config["value_first_layers"], False, 0, quantization_config)
-            self.cdf_helper(encoder,  quantization_config["value_first_layers"], self.l, False, 0, quantization_config)
+            self.cdf_helper(encoder, True, 0, quantization_config)
+            self.cdf_helper(encoder, False, 0, quantization_config)
+            # self.cdf_helper(encoder,  quantization_config["value_first_layers"], self.l, False, 0, quantization_config)
             pickle.dump(self.concat_max(encoder.max_tensors_key), open(f"{os.environ['TMP_DIR']}/test_max_k.pkl", "wb"))
-            bitstreams = self.encoder_helper(encoder, True, 0, quantization_config)
+            bitstreams, start_indices = self.encoder_helper(encoder, True, 0, quantization_config)
             pickle.dump(self.concat_max(encoder.max_tensors_value), open(f"{os.environ['TMP_DIR']}/test_max_v.pkl", "wb"))
+            pickle.dump(start_indices, open(f"{os.environ['TMP_DIR']}/start_indices.pkl", "wb"))
             pickle.dump(bitstreams, open(f"{os.environ['TMP_DIR']}/test_bits_k.pkl", "wb"))
             self.input_id_to_k[(input_id_hash, 0)] = bitstreams
-            bitstreams = self.encoder_helper(encoder, False, 0, quantization_config)
-
-            pickle.dump(bitstreams, open(f"{os.environ['TMP_DIR']}/test_bits_v.pkl", "wb"))
             pickle.dump(self.k_cdf, open(f"{os.environ['TMP_DIR']}/test_cdf_k.pkl", "wb"))
             pickle.dump(self.v_cdf, open(f"{os.environ['TMP_DIR']}/test_cdf_v.pkl", "wb"))
         else:
             self.k_cdf = pickle.load(open(f"{os.environ['TMP_DIR']}/test_cdf_k.pkl", "rb"))
             self.v_cdf = pickle.load(open(f"{os.environ['TMP_DIR']}/test_cdf_v.pkl", "rb"))
-            
             self.k_cdf = _renorm_cast_cdf_(self.k_cdf.float(), 16)
             self.v_cdf = _renorm_cast_cdf_(self.v_cdf.float(), 16)
             self.input_id_to_k[(input_id_hash, 0)] = pickle.load(open(f"{os.environ['TMP_DIR']}/test_bits_k.pkl", "rb"))
-            self.input_id_to_v[(input_id_hash, 0)] = pickle.load(open(f"{os.environ['TMP_DIR']}/test_bits_v.pkl", "rb"))
+            self.input_id_to_start_indices[(input_id_hash, 0)] = pickle.load(open(f"{os.environ['TMP_DIR']}/start_indices.pkl", "rb"))
+            # self.input_id_to_v[(input_id_hash, 0)] = pickle.load(open(f"{os.environ['TMP_DIR']}/test_bits_v.pkl", "rb"))
             self.max_tensors_k[(input_id_hash, 0)] = pickle.load(open(f"{os.environ['TMP_DIR']}/test_max_k.pkl", "rb"))
             self.max_tensors_v[(input_id_hash, 0)] = pickle.load(open(f"{os.environ['TMP_DIR']}/test_max_v.pkl", "rb"))
     def merge_kv(self, input_ids: torch.Tensor):
