@@ -4,7 +4,16 @@ import os
 import torchac_cuda
 import time
 import json
+import argparse
 from fastchat.model import load_model
+p = argparse.ArgumentParser()
+p.add_argument("--path_to_encoded_kv", type=str)
+p.add_argument("--quantization_config", type=str)
+p.add_argument("--model_config", type=str)
+p.add_argument("--chunk_size", type=int)
+p.add_argument("--model_id", type=str)
+p.add_argument("--input_text", type=str)
+args = p.parse_args()
 def _renorm_cast_cdf_(cdf, precision):
     Lp = cdf.shape[-1]
     finals = 1  # NHW1
@@ -51,19 +60,19 @@ def decode_function(path_to_encoded_kv, quantization_config, model_config, CHUNK
     encoded_file = pickle.load(open(path_to_encoded_kv, "rb"))
     cdf = encoded_file["cdf"]
     cdf = _renorm_cast_cdf_(cdf.float(), 16)
-    output = torch.zeros( (CHUNK_SIZE, cdf.shape[0] * 1024 )).cuda().to(torch.int32)
+    output = torch.zeros( (CHUNK_SIZE, cdf.shape[0] * model_config['hidden_dim'] )).cuda().to(torch.int)
     bits = encoded_file["bitstreams"]
     concated_string = bits
     start_indices= encoded_file["start_indices"]
     max_tensors_k = encoded_file["max_tensors_key"]
     max_tensors_v = encoded_file["max_tensors_value"]
-    for i in range(5):
+    for i in range(2): # 2 times to warm up the cache
         st = time.monotonic()
         out = torchac_cuda.decode_fast(output, cdf.unsqueeze(0), concated_string, \
             start_indices, CHUNK_SIZE, 20, CHUNK_SIZE//20)
         # out = torchac_cuda.decode(output, cdf.unsqueeze(0), bits,  6000, 60, 100)
         print( f"TTFT: {time.monotonic() - st}")
-    out =out.reshape((CHUNK_SIZE, 2, max_tensors_k.shape[0], \
+    out = output.reshape((CHUNK_SIZE, 2, max_tensors_k.shape[0], \
         model_config["hidden_dim"])).permute(1, 2, 0, 3)
     key = out[0].half()
     value = out[1].half()
@@ -85,11 +94,12 @@ def decode_function(path_to_encoded_kv, quantization_config, model_config, CHUNK
             max_tensors_v[l, :CHUNK_SIZE].clone().cuda()).clone()   
     return key, value 
 if __name__ == "__main__":
-    key, value = decode_function("data/test_encoded.pkl", "config/quantization_7b.json", \
-        "config/model_config.json", 2000)
-    kv_tuple = transformer_kv_to_tuple(key, value, 8, 128)
+    key, value = decode_function(args.path_to_encoded_kv, args.quantization_config, \
+        args.model_config, args.chunk_size)
+    model_config = json.load(open(args.model_config, "r"))
+    kv_tuple = transformer_kv_to_tuple(key, value, model_config["num_heads"], model_config["heads_dim"])
     model, tokenizer = load_model(
-            "mistralai/Mistral-7B-Instruct-v0.2",
+            args.model_id,
             device="cuda",
             num_gpus=1,
             max_gpu_memory=f"{20}GiB",
@@ -97,7 +107,7 @@ if __name__ == "__main__":
             cpu_offloading=False,
             debug=False,
         )
-    with open("7k_prompts/1.txt", "r") as f:
+    with open(args.input_text, "r") as f:
         text = f.read()
     input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()
     output = model.generate(input_ids=input_ids, \

@@ -3,6 +3,19 @@ import torch
 import pickle
 import torchac
 import json
+import argparse
+
+p = argparse.ArgumentParser()
+p.add_argument("--path_to_encoded_kv", type=str)
+p.add_argument("--quantization_config", type=str)
+p.add_argument("--model_config", type=str)
+p.add_argument("--chunk_size", type=int)
+p.add_argument("--model_id", type=str)
+p.add_argument("--input_text", type=str)
+p.add_argument("--path_to_original_kv", type=str)
+args = p.parse_args()
+
+
 def transform_tuple_to_tensors(kv):
     
     head_num = kv[0][0].shape[1]
@@ -87,4 +100,4 @@ def encode_function(path_to_original_kv, quantization_config, CHUNK_SIZE, output
     pickle.dump(output_dict, open(output_path, "wb"))
     
 if __name__ == "__main__":
-    encode_function("data/test_kv.pkl", "config/quantization_7b.json", 2000, "data/test_encoded.pkl")
+    encode_function(args.path_to_original_kv, args.quantization_config, args.chunk_size, args.path_to_encoded_kv)
