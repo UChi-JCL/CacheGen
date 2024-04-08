@@ -1,5 +1,5 @@
 {
-    "hidden_dim": 4096, 
-    "num_heads": 32,
+    "hidden_dim": 1024, 
+    "num_heads": 8,
     "heads_dim": 128
 }

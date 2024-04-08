@@ -1,6 +1,0 @@
-# ninja log v5
-4	53135	1711676473000000000	/workspace/CacheGen/src/decoder/build/temp.linux-x86_64-cpython-310/torchac_kernel.o	1fe836b94ed16be8
-1	50914	1712041438925374816	/home/cc/standalone/CacheGen/src/decoder/build/temp.linux-x86_64-cpython-310/torchac_kernel.o	eccae8527e64dd21
-1	49395	1712042451229265546	/home/cc/standalone/CacheGen/src/decoder/build/temp.linux-x86_64-cpython-310/torchac_kernel.o	eccae8527e64dd21
-0	49983	1712042565456412766	/home/cc/standalone/CacheGen/src/decoder/build/temp.linux-x86_64-cpython-310/torchac_kernel.o	eccae8527e64dd21
-1	49499	1712042671747341379	/home/cc/standalone/CacheGen/src/decoder/build/temp.linux-x86_64-cpython-310/torchac_kernel.o	eccae8527e64dd21
