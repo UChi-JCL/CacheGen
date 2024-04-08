@@ -2,7 +2,7 @@
 
 This is the code repo for [CacheGen: Fast Context Loading for Language Model Applications via KV Cache Streaming](https://arxiv.org/pdf/2310.07240.pdf).
 
-This branch is for standalone runs of CacheGen's encoder and decoder. 
+This branch is for standalone runs of CacheGen's encoder and decoder (for Jiayi or Kuntai's integration)
 
 ## Installation
 
