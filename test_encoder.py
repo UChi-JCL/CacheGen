@@ -4,7 +4,8 @@ import pickle
 import torchac
 import json
 import argparse
-
+import numpy as np
+import time
 p = argparse.ArgumentParser()
 p.add_argument("--path_to_encoded_kv", type=str)
 p.add_argument("--quantization_config", type=str)
@@ -82,8 +83,15 @@ def encode_function(path_to_original_kv, quantization_config, CHUNK_SIZE, output
     
     # # cdf = cdf.unsqueeze(2).repeat(1, 1, 4096, 1)
     # print(encode_input.shape, cdf.shape)
+    maxsize = 4096 * 32 * CHUNK_SIZE
+    # breakpoint()
+    if encode_function.BUFFER is None:
+        encode_function.BUFFER = np.zeros(maxsize, dtype=np.uint8)
+    buffer = encode_function.BUFFER
+    current_index = 0
     bitstreams = b""
     start_indices = []  
+    st = time.monotonic()
     for i in range(CHUNK_SIZE):
         if i % 100 == 0:
             print(i)
@@ -92,12 +100,15 @@ def encode_function(path_to_original_kv, quantization_config, CHUNK_SIZE, output
         # bitstreams.append(bits)
         start_indices += [len(bitstreams)]
         bitstreams += bits
-    output_dict["cdf"] = cdf
+    print("Time to encode", time.monotonic() - st)
     output_dict["bitstreams"] = bitstreams
-    output_dict["start_indices"] = start_indices
+    # output_dict[f"bitstreams"] = buffer[:current_index]
+    output_dict[f"start_indices"] = start_indices
+    output_dict["cdf"] = cdf
     output_dict["max_tensors_key"] = concat_max(encoder.max_tensors_key)
     output_dict["max_tensors_value"] = concat_max(encoder.max_tensors_value)
     pickle.dump(output_dict, open(output_path, "wb"))
-    
+
+encode_function.BUFFER = None    
 if __name__ == "__main__":
     encode_function(args.path_to_original_kv, args.quantization_config, args.chunk_size, args.path_to_encoded_kv)
