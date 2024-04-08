@@ -68,7 +68,7 @@ def decode_function(path_to_encoded_kv, quantization_config, model_config, CHUNK
     max_tensors_v = encoded_file["max_tensors_value"]
     for i in range(2): # 2 times to warm up the cache
         st = time.monotonic()
-        out = torchac_cuda.decode_fast(output, cdf.unsqueeze(0), concated_string, \
+        out = torchac_cuda.decode_fast(output, cdf.unsqueeze(0), concated_string.tobytes(), \
             start_indices, CHUNK_SIZE, 20, CHUNK_SIZE//20)
         # out = torchac_cuda.decode(output, cdf.unsqueeze(0), bits,  6000, 60, 100)
         print( f"TTFT: {time.monotonic() - st}")

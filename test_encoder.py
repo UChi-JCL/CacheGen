@@ -84,25 +84,31 @@ def encode_function(path_to_original_kv, quantization_config, CHUNK_SIZE, output
     # # cdf = cdf.unsqueeze(2).repeat(1, 1, 4096, 1)
     # print(encode_input.shape, cdf.shape)
     maxsize = 4096 * 32 * CHUNK_SIZE
-    # breakpoint()
     if encode_function.BUFFER is None:
         encode_function.BUFFER = np.zeros(maxsize, dtype=np.uint8)
     buffer = encode_function.BUFFER
     current_index = 0
-    bitstreams = b""
     start_indices = []  
     st = time.monotonic()
+    bitstreams = b""
+         
     for i in range(CHUNK_SIZE):
         if i % 100 == 0:
             print(i)
         bits = torchac.encode_float_cdf(cdf, \
             encode_input[:, i].to(torch.int16) )
-        # bitstreams.append(bits)
-        start_indices += [len(bitstreams)]
-        bitstreams += bits
+        
+        # start_indices += [len(bitstreams)]
+        # bitstreams += bits
+            
+        length = len(bits)
+        start_indices += [current_index]
+        buffer[current_index:current_index + length] = np.frombuffer(bits, dtype=np.uint8)
+        current_index += length
+        
     print("Time to encode", time.monotonic() - st)
-    output_dict["bitstreams"] = bitstreams
-    # output_dict[f"bitstreams"] = buffer[:current_index]
+    # output_dict["bitstreams"] = bitstreams
+    output_dict[f"bitstreams"] = buffer[:current_index]
     output_dict[f"start_indices"] = start_indices
     output_dict["cdf"] = cdf
     output_dict["max_tensors_key"] = concat_max(encoder.max_tensors_key)
