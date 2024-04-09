@@ -542,7 +542,7 @@ torch::Tensor decode_fast(torch::Tensor out_tensor, const at::Tensor &cdf,
     cudaEventRecord(stop2, 0);
     cudaEventSynchronize(stop2);
     cudaEventElapsedTime(&elapsedTime1, start2, stop2);
-    std::cout << "time taken for compute data: " << elapsedTime << " ms" << std::endl;
+    std::cout << "time taken for compute data: " << elapsedTime1 << " ms" << std::endl;
 
 
     cudaFree(d_str);
