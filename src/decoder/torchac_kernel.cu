@@ -97,7 +97,7 @@ const struct cdf_ptr get_cdf_ptr_cuda(const at::Tensor &cdf)
 // __host__ __device__  void f(
 __global__ void decode_with_cuda_kernel(
     // int* out_arr, char* in, const int size_in, const cdf_t* cdf, const int N_sym, const int Lp ) {
-    int *out_arr, char *in, const int size_in, cdf_t *cdf, const int N_sym, const int Lp, int *start_index_arr_device)
+    int *out_arr, uint8_t *in, const int size_in, cdf_t *cdf, const int N_sym, const int Lp, int *start_index_arr_device)
 {
     int start_index = blockIdx.x * blockDim.x + threadIdx.x;
     // char* tmpStart = (char*)malloc(8 * sizeof(char));
@@ -460,7 +460,7 @@ std::string formatIntegerTo4BitChars(unsigned int value) {
 // }
 
 torch::Tensor decode_fast(torch::Tensor out_tensor, const at::Tensor &cdf,
-                     std::string concated_string, std::vector<int> start_indices, const int all_tokens, 
+                     at::Tensor concated_string, at::Tensor start_indices, const int all_tokens, 
                      const int blockNum, const int threadNum)
 {
     /* Decode a list of strings using the given CDF with CUDA kernels.
@@ -477,41 +477,15 @@ torch::Tensor decode_fast(torch::Tensor out_tensor, const at::Tensor &cdf,
 
     // const std::string& in) {
     // int tot_length = concatenatedString.length();
-    int tot_length = 0;
+    int tot_length = concated_string.sizes()[0];
     int cnt = 0;
-
-    
-    
-  
-    tot_length = concated_string.length();
-    char *d_str;
+    uint8_t *d_str;
     cudaMalloc((void **)&d_str, tot_length * sizeof(char));
-    cudaMemcpy(d_str, concated_string.c_str() , tot_length * sizeof(char), cudaMemcpyHostToDevice);
-
-    
-    // cudaEvent_t start3;
-    // cudaEventCreate(&start3);
-    // cudaEventRecord(start3, 0);
-    std::string concatStart;
+    cudaMemcpy(d_str, concated_string.data_ptr<uint8_t>(), tot_length * sizeof(uint8_t), cudaMemcpyHostToDevice);
+    //  = concated_string.data_ptr<uint8_t>();
     float elapsedTime1;
-    int *start_index_arr_device;
-    cudaMalloc((void **)&start_index_arr_device, start_indices.size() * sizeof(int));
-    cudaMemcpy(start_index_arr_device, start_indices.data(), start_indices.size() * sizeof(int), cudaMemcpyHostToDevice);
+    int *start_index_arr_device = start_indices.data_ptr<int>();
 
-
-    char *d_str_start;
-    cudaMalloc((void **)&d_str_start, concatStart.length() * sizeof(char));
-    cudaMemcpy(d_str_start, concatStart.c_str(),  concatStart.length()  * sizeof(char), cudaMemcpyHostToDevice);
-
-    // cudaEvent_t stop3;
-    // cudaEventCreate(&stop3);
-    // cudaEventRecord(stop3, 0);
-    // cudaEventSynchronize(stop3);
-    // cudaEventElapsedTime(&elapsedTime1, start3, stop3);
-    // std::cout << "time taken for moving data: " << elapsedTime1 << " ms" << std::endl;
-
-
-    
     cudaEvent_t start2, stop2;
     cudaEventCreate(&start2);
     cudaEventRecord(start2, 0);

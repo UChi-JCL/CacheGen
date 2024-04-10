@@ -13,6 +13,7 @@ p.add_argument("--path_to_encoded_kv", type=str)
 p.add_argument("--quantization_config", type=str)
 p.add_argument("--model_config", type=str)
 p.add_argument("--chunk_size", type=int)
+p.add_argument("--all_chunks", type=int)
 p.add_argument("--model_id", type=str)
 p.add_argument("--input_text", type=str)
 args = p.parse_args()
@@ -115,7 +116,7 @@ def decode_function(chunk_id, path_to_encoded_kv, quantization_config, model_con
         # torchac_cuda.decode_fast(output, cdf.unsqueeze(0), concated_string.tobytes(),  \
         #     start_indices, CHUNK_SIZE, 20, CHUNK_SIZE//20)
         torchac_cuda.decode_fast(output, cdf.unsqueeze(0), input_bitstreams,  \
-            start_indices, CHUNK_SIZE, nlayers*scale, CHUNK_SIZE, scale)
+            start_indices, CHUNK_SIZE, 20, CHUNK_SIZE//20)
         torch.cuda.synchronize()
         # torchac.decode_float_cdf(cdf, concated_string[:start_indices[1]])
         # out = torchac_cuda.decode(output, cdf.unsqueeze(0), bits,  6000, 60, 100)
@@ -125,8 +126,7 @@ def decode_function(chunk_id, path_to_encoded_kv, quantization_config, model_con
     print(output)
     # breakpoint()
     # return None, None
-    out = output.reshape((2, max_tensors_k.shape[0], scale * CHUNK_SIZE, \
-        model_config["hidden_dim"]))
+    out = output.reshape((CHUNK_SIZE, 2, cdf.shape[0]//2, cdf.shape[-2])).permute(1, 2, 0, 3)
     key = out[0].half()
     value = out[1].half()
     for l in range(key.shape[0]):
@@ -155,7 +155,7 @@ if __name__ == "__main__":
     
     model_config = json.load(open(args.model_config, "r"))
     kv_tuple = None
-    for c in range(5):
+    for c in range(args.all_chunks):
         key, value = decode_function(c, args.path_to_encoded_kv, args.quantization_config, \
             args.model_config, args.chunk_size)
         chunk_kv = transformer_kv_to_tuple(key, value, model_config["num_heads"], model_config["heads_dim"])

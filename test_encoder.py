@@ -93,22 +93,18 @@ def encode_function(path_to_original_kv, quantization_config, CHUNK_SIZE, output
         current_index = 0
         start_indices = []  
         bitstreams = b""
-        for l in range(cdf.shape[0]):
-            print("Done with layer", l)
-            for i in range(c*CHUNK_SIZE, (c+1)*CHUNK_SIZE):
-                # if i % 100 == 0:
-                #     print(i)
-                bits = torchac.encode_float_cdf(cdf[l:l+1], \
-                    encode_input[l:l+1, i].to(torch.int16) )
-                
-                # start_indices += [len(bitstreams)]
-                # bitstreams += bits
-                    
-                length = len(bits)
-                start_indices += [current_index]
-                buffer[current_index:current_index + length] = np.frombuffer(bits, dtype=np.uint8)
-                current_index += length
         
+        for i in range(c*CHUNK_SIZE, (c+1)*CHUNK_SIZE):
+            # if i % 100 == 0:
+            #     print(i)
+            bits = torchac.encode_float_cdf(cdf, \
+                encode_input[:, i].to(torch.int16) )
+            
+            length = len(bits)
+            start_indices += [current_index]
+            buffer[current_index:current_index + length] = np.frombuffer(bits, dtype=np.uint8)
+            current_index += length
+    
         output_dict[f"bitstreams"] = buffer[:current_index]
         output_dict[f"start_indices"] = start_indices
         print("Time to encode", time.monotonic() - st)
