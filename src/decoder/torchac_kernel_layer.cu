@@ -97,15 +97,17 @@ const struct cdf_ptr get_cdf_ptr_cuda(const at::Tensor &cdf)
 // __host__ __device__  void f(
 __global__ void decode_with_cuda_kernel_layer(
     // int* out_arr, char* in, const int size_in, const cdf_t* cdf, const int N_sym, const int Lp ) {
-    int *out_arr, char *in, const int nlayers, const int in_tot_length, cdf_t *cdf, const int N_sym, const int Lp, int *start_index_arr_device) {
+    int *out_arr, uint8_t *in, const int nlayers, const int in_tot_length, 
+    cdf_t *cdf, const int N_sym, const int Lp, int *start_index_arr_device,
+    const int scale, const int start_indices_length) {
     int ntokens = blockDim.x;
-    int start_layer = blockIdx.x;
+    int start_layer = blockIdx.x / scale;
     // printf("ntokens: %d, nlayers: %d\n", ntokens, nlayers);
     int start_index = blockIdx.x * blockDim.x + threadIdx.x; // index for token
     int from_index = start_index_arr_device[start_index];
     // printf("start_index: %d, from_index: %d\n", start_index, from_index);
     int size_in = 0;
-    if (start_index < blockDim.x-1) {
+    if (start_index < start_indices_length-1) {
         size_in = start_index_arr_device[start_index+1] - from_index;
     } else {
         size_in = in_tot_length - from_index;
@@ -344,9 +346,12 @@ std::string formatIntegerTo4BitChars(unsigned int value) {
 // torch::Tensor decode(torch::Tensor out_tensor, const at::Tensor &cdf,
 
 
+// void decode_fast(torch::Tensor out_tensor, const at::Tensor &cdf,
+//                      std::string concated_string, std::vector<int> start_indices, const int all_tokens, 
+//                      const int blockNum, const int threadNum, const int scale)
 void decode_fast(torch::Tensor out_tensor, const at::Tensor &cdf,
-                     std::string concated_string, std::vector<int> start_indices, const int all_tokens, 
-                     const int blockNum, const int threadNum)
+                     at::Tensor concated_string, const at::Tensor start_indices, const int all_tokens, 
+                     const int blockNum, const int threadNum, const int scale)
 {
     /* Decode a list of strings using the given CDF with CUDA kernels.
      * Args:
@@ -362,26 +367,33 @@ void decode_fast(torch::Tensor out_tensor, const at::Tensor &cdf,
 
     // const std::string& in) {
     // int tot_length = concatenatedString.length();
-    int tot_length = 0;
-    tot_length = concated_string.length();
-    char *d_str;
+    // int tot_length = concated_string.length();
+    int tot_length = concated_string.sizes()[0];
+    std::cout << "tot_length: " << tot_length << std::endl;
+    // char *d_str;
+    // cudaMalloc((void **)&d_str, tot_length * sizeof(char));
+    // cudaMemcpy(d_str, concated_string.c_str() , tot_length * sizeof(char), cudaMemcpyHostToDevice);
+    uint8_t *d_str;
     cudaMalloc((void **)&d_str, tot_length * sizeof(char));
-    cudaMemcpy(d_str, concated_string.c_str() , tot_length * sizeof(char), cudaMemcpyHostToDevice);
-
+    cudaMemcpy(d_str, concated_string.data_ptr<uint8_t>(), tot_length * sizeof(uint8_t), cudaMemcpyHostToDevice);
+    //  = concated_string.data_ptr<uint8_t>();
     
-    // cudaEvent_t start3;
-    // cudaEventCreate(&start3);
-    // cudaEventRecord(start3, 0);
+    cudaEvent_t start3, stop3;
+    cudaEventCreate(&start3);
+    cudaEventRecord(start3, 0);
     std::string concatStart;
-    float elapsedTime1;
-    int *start_index_arr_device;
-    cudaMalloc((void **)&start_index_arr_device, start_indices.size() * sizeof(int));
-    cudaMemcpy(start_index_arr_device, start_indices.data(), start_indices.size() * sizeof(int), cudaMemcpyHostToDevice);
+    
+    // int *start_index_arr_device;
+    // cudaMalloc((void **)&start_index_arr_device, start_indices.size() * sizeof(int));
+    // cudaMemcpy(start_index_arr_device, start_indices.data(), start_indices.size() * sizeof(int), cudaMemcpyHostToDevice);
 
+    cudaEventCreate(&stop3);
+    cudaEventRecord(stop3, 0);
+    cudaEventSynchronize(stop3);
+    float elapsedTime0;
+    cudaEventElapsedTime(&elapsedTime0, start3, stop3);
+    std::cout << "time taken for copy data: " << elapsedTime0 << " ms" << std::endl;
 
-    char *d_str_start;
-    cudaMalloc((void **)&d_str_start, concatStart.length() * sizeof(char));
-    cudaMemcpy(d_str_start, concatStart.c_str(),  concatStart.length()  * sizeof(char), cudaMemcpyHostToDevice);
 
     const auto cdf_ptr = get_cdf_ptr_cuda(cdf);
     // std::cout << "N_sym: " << cdf_ptr.N_sym << std::endl;
@@ -393,19 +405,22 @@ void decode_fast(torch::Tensor out_tensor, const at::Tensor &cdf,
     cudaMemcpy(cdf_data, cdf_ptr.data, size_cdf, cudaMemcpyHostToDevice);
     
     int *out_arr = out_tensor.data_ptr<int>();
-
-
+    const auto start_indices_len = start_indices.sizes();
+    int start_indices_length = start_indices_len[0];
+    int *start_index_arr_device = start_indices.data_ptr<int>();
     std::cout << "N_sym: " << cdf_ptr.N_sym << std::endl;
 
     cudaEvent_t start2, stop2;
     cudaEventCreate(&start2);
     cudaEventRecord(start2, 0);
-
-    decode_with_cuda_kernel_layer<<<blockNum, threadNum>>>(out_arr, d_str, blockNum, tot_length, cdf_data, cdf_ptr.N_sym, cdf_ptr.Lp, start_index_arr_device);
+    
+    decode_with_cuda_kernel_layer<<<blockNum, threadNum>>>(out_arr, d_str, blockNum, tot_length, cdf_data, cdf_ptr.N_sym, 
+        cdf_ptr.Lp, start_index_arr_device, scale, start_indices_length);
 
     cudaEventCreate(&stop2);
     cudaEventRecord(stop2, 0);
     cudaEventSynchronize(stop2);
+    float elapsedTime1;
     cudaEventElapsedTime(&elapsedTime1, start2, stop2);
     std::cout << "time taken for compute data: " << elapsedTime1 << " ms" << std::endl;
 
@@ -418,7 +433,7 @@ void decode_fast(torch::Tensor out_tensor, const at::Tensor &cdf,
 
 namespace py = pybind11;
 
-PYBIND11_MODULE(torchac_cuda_layer, m) {
+PYBIND11_MODULE(torchac_cuda, m) {
     // m.def("decode", &decode, "decode function");
     m.def("decode_fast", &decode_fast, "Fast decode function");
 }
