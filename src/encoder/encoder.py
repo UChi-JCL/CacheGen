@@ -26,7 +26,7 @@ class CacheGenEncoder:
         self.max_tensors_value = {} 
         self.config = kwargs["config"]
         
-    def quantize(self, config):
+    def quantize(self):
         """ Quantize the key and value tensors 
         (self.fp_k and self.fp_v) 
         """
@@ -35,7 +35,7 @@ class CacheGenEncoder:
             if layer < self.config["key_first_layers"]:
                 os.environ['BINS'] = self.config["key_first_bins"]
                 
-            elif layer < config["key_second_layers"]:
+            elif layer < self.config["key_second_layers"]:
                 os.environ['BINS'] = self.config["key_second_bins"]
             else:
                 os.environ['BINS'] = self.config["key_third_bins"]
@@ -43,7 +43,7 @@ class CacheGenEncoder:
             self.quantized_key[layer] = tmp[0] + int(os.environ['BINS']) // 2 - 1
             self.max_tensors_key[layer] = tmp[1]
         for layer in range(len(self.fp_v)):
-            if layer < config["value_first_layers"]:
+            if layer < self.config["value_first_layers"]:
                 os.environ['BINS'] = self.config["value_first_bins"]
             else:
                 os.environ['BINS'] = self.config["value_second_bins"]
@@ -51,7 +51,7 @@ class CacheGenEncoder:
             self.quantized_value[layer] = tmp[0]+ int(os.environ['BINS']) // 2 - 1
             self.max_tensors_value[layer] = tmp[1]
             
-    def compute_cdf(self, start_layer, end_layer, is_key, config):
+    def compute_cdf(self, is_key):
         """
         Compute the CDF based on the quantized tensors
         Field: 
@@ -61,37 +61,40 @@ class CacheGenEncoder:
         # TODO: Add start_index here
         channels = self.fp_k[0].shape[-1]
         tokens = self.fp_k[0].shape[0]
-        if is_key:
-            if end_layer <= config["key_first_layers"]:
-                os.environ['BINS'] = self.config["key_first_bins"]
-            elif end_layer <= config["key_second_layers"]:
-                os.environ['BINS'] = self.config["key_second_bins"]
-            else:
-                os.environ['BINS'] = self.config["key_third_bins"]
-        else:
-            if end_layer <= config["value_first_layers"]:
-                os.environ['BINS'] = self.config["value_first_bins"]
-            else:
-                os.environ['BINS'] = self.config["value_second_bins"]
-        final_cdf = torch.zeros(end_layer - start_layer, channels, int(os.environ['BINS'] ) + 1)
         
-        for i in range(end_layer - start_layer):
-            print("layer", i)
-            for j in range(channels):
-                
-                if is_key:
-                    tmp_input = self.quantized_key[i + start_layer][:, j]
-                else:
-                    tmp_input = self.quantized_value[i + start_layer][:, j]
-                # if end_layer == 40:
-                #     breakpoint()
-                symbs_orig, unique_tensor = torch.tensor(tmp_input).unique(return_counts=True)
-                output_cdf = torch.zeros(int(os.environ['BINS']) )
-                output_cdf[symbs_orig.long()] = unique_tensor.float()
-                output = output_cdf / output_cdf.sum()
-                output = torch.cumsum(output_cdf ,dim=-1) / max(torch.cumsum(output_cdf , dim=-1))
-                output =  torch.cat((torch.tensor([0.0]), output))
-                final_cdf[i, j] = output
+        def process_batch(X, max_val):
+            """
+            input shape should be 【channels, tokens】
+            """
+            nchannels, ntokens = X.shape
+            one_hot = torch.nn.functional.one_hot(X.long(), num_classes=max_val + 1).to(torch.float32)  # Use float32 to avoid integer overflow
+            counts = one_hot.sum(dim=1) / ntokens
+            ret = torch.cumsum(counts, dim=1).roll(1)
+            ret[:, 0] = 0
+            return ret
+
+        def process_layers(X, max_val):
+            """
+            x is a iterator of dict values
+            each element's shape is [tokens, channels]
+            """
+            results = []
+            for x in X:
+                ''' do permute here '''
+                batch_counts = process_batch(x.cuda().permute(1, 0), max_val)
+                results.append(batch_counts)
+
+            final_counts = torch.cat(results, dim=0)
+            
+            return final_counts
+        
+        if is_key:
+            X = self.quantized_key.values()
+        else:
+            X = self.quantized_value.values()
+        value_range = 32
+        cdfs = process_layers(X, value_range) # 4096 is batch size, ==> 18GB GPU memory
+        final_cdf = cdfs.reshape((len(self.fp_k), channels, value_range+1)).cpu()
                 
                 
         return final_cdf

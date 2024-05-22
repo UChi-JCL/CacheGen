@@ -5,6 +5,7 @@ import os
 import time
 import pickle
 import torch
+os.environ['HF_TOKEN'] = "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"
 from src.cachegen_engine import CacheGenController
 import json
 from torch.profiler import profile, record_function, ProfilerActivity
@@ -21,10 +22,9 @@ p.add_argument("--results_dir", type=str, default = "results")
 p.add_argument("--num_gpus", type=int, default = 1)
 p.add_argument("--max_gpu_memory", type=int, default=48, help="Default max GPU memory in GiB on A40")
 p.add_argument("--quantization_config", type=str, default="config/quantization.json")
-
+p.add_argument("--path_to_context", type=str)
 args = p.parse_args()
 if __name__ == "__main__":
-    # 
     model, tokenizer = load_model(
             args.model_id,
             device="cuda",
@@ -34,70 +34,32 @@ if __name__ == "__main__":
             cpu_offloading=False,
             debug=False,
         )
+    # model = AutoModelForCausalLM.from_pretrained(args.model_id, load_in_8bit=True)
     tokenizer = AutoTokenizer.from_pretrained(args.model_id)
     print("Model and tokenizer loaded")
     os.environ['TMP_DIR'] = args.save_dir
     # Generate KV cache here 
-    if args.generate_kv:
-        with open(args.path, "r") as f:
-            text = f.read()
-        input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()
-        st = time.monotonic()
-        # with profile(activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-        #     # with profile(activities = [ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-        #     # input_ids = tokenizer("Hello, my dog is cute", return_tensors="pt").input_ids
-        #     generated = model.generate(input_ids, max_new_tokens = 1)
-        generated = model.generate(input_ids, max_new_tokens = 1, return_dict_in_generate=True)
-        torch.cuda.synchronize()
-        print( f"TTFT: {time.monotonic() - st}" )
-        kv = generated['past_key_values']
-        kv = list(kv)
-        for i in range(len(kv)):
-            kv[i] = list(kv[i])
-            kv[i][0] = kv[i][0].cpu()
-            kv[i][1] = kv[i][1].cpu()
-            kv[i] = tuple(kv[i])
-        kv = tuple(kv)
-        pickle.dump(kv, open(f"{args.save_dir}/test_kv.pkl", "wb"))
-    elif args.vanilla:
-        # model = AutoModelForCausalLM.from_pretrained(args.model_id, load_in_8bit=True)
-        # model.eval()
-        
-        with open(args.path, "r") as f:
-            text = f.read()
-        
-        for _ in range(5):
-            # st = time.monotonic()
-            with torch.no_grad():
-                input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()
-                generated = model.generate(input_ids, max_new_tokens = 10)
-            # print( f"TTFT: {time.monotonic() - st}" )
-        print("output: ", tokenizer.decode(generated[0][-10:]))
-        # Dump the generated output to output directory
-        with open(f"{args.results_dir}/gt_{args.doc_id}.txt", "w") as f:
-            f.write(tokenizer.decode(generated[0][-10:]))
-    else:
-        with open(args.path, "r") as f:
-            text = f.read()
-        input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()
-        os.environ['TOKENS'] = str(input_ids.shape[1])
-        quantization_config = json.load(open(args.quantization_config, "r"))
-        
-        cachegen_controller = CacheGenController(model=model, config=quantization_config)
-        orig_kv_cache = pickle.load(open(f"{args.save_dir}/test_kv.pkl", "rb"))
-        
-        cachegen_controller.set(input_ids[0], orig_kv_cache, quantization_config)
-        cachegen_controller.set(input_ids[0], orig_kv_cache, quantization_config, offline=False)
-        # cachegen_controller.get(input_ids[0])
-        
-        for _ in range(1):
-            st = time.monotonic()
-            merged_kv = cachegen_controller.engine.merge_kv(input_ids=input_ids)
-            print(f"Total time: {time.monotonic() - st}")
-        input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()
-        output = cachegen_controller.engine.model.generate(input_ids=input_ids, \
-            past_key_values=merged_kv, max_new_tokens=10)
-        print(tokenizer.decode(output[0][-10:]))
-        with open(f"{args.results_dir}/cachegen_{args.doc_id}.txt", "w") as f:
-            f.write(tokenizer.decode(output[0][-10:]))
-        
+    
+    with open(args.path_to_context, "r") as f:
+        text = f.read()
+    input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()
+    print("Length of input: ", input_ids.shape)
+    st = time.monotonic()
+    
+    generated = model.generate(input_ids, max_new_tokens = 1, return_dict_in_generate=True)
+    torch.cuda.synchronize()
+    print( f"TTFT: {time.monotonic() - st}" )
+    kv = generated['past_key_values']
+    kv = list(kv)
+    key_value = []
+    for i in range(len(kv)):
+        kv[i] = list(kv[i])
+        kv[i][0] = kv[i][0][:, :, :-1]
+        kv[i][1] = kv[i][1][:, :, :-1]
+        key_tensor = kv[i][0].permute((0, 2, 1, 3)).reshape((1, kv[i][0].shape[2], -1))
+        value_tensor = kv[i][1].permute((0, 2, 1, 3)).reshape((1, kv[i][1].shape[2], -1))
+        key_value += [ torch.cat((key_tensor,value_tensor), dim=0).unsqueeze(0)]
+        kv[i] = tuple(kv[i])
+    kv = tuple(kv)
+    key_value = torch.cat(key_value, dim=0)
+    pickle.dump(kv, open(f"{args.save_dir}/test_kv_{args.doc_id}.pkl", "wb"))

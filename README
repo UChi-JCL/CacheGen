@@ -1,0 +1,21 @@
+cc-cloudfuse
+___________________________________________________________________
+The "my_mounting_point" directory under /home/cc is the mounting
+point to the Chameleon object store, so that you can access the
+object store as a file system.
+
+A mounting tool known as cc-cloudfuse has been installed. You can
+use cc-cloudfuse to mount/unmout the Chameleon object store.
+
+To mount:
+cc-cloudfuse mount <mounting_dir> [options]
+
+To see details about mount options:
+cc-cloudfuse mount -h
+
+To unmount:
+cc-cloudfuse unmount <mounting_dir>
+
+You can learn more about cc-cloudfuse by visiting Chameleon user
+documentation at
+https://chameleoncloud.readthedocs.io/en/latest/technical/swift.html#mounting-object-store-as-a-file-system

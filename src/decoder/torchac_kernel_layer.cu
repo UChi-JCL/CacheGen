@@ -369,7 +369,7 @@ void decode_fast(torch::Tensor out_tensor, const at::Tensor &cdf,
     // int tot_length = concatenatedString.length();
     // int tot_length = concated_string.length();
     int tot_length = concated_string.sizes()[0];
-    // std::cout << "tot_length: " << tot_length << std::endl;
+    std::cout << "tot_length: " << tot_length << std::endl;
     // char *d_str;
     // cudaMalloc((void **)&d_str, tot_length * sizeof(char));
     // cudaMemcpy(d_str, concated_string.c_str() , tot_length * sizeof(char), cudaMemcpyHostToDevice);
@@ -392,15 +392,15 @@ void decode_fast(torch::Tensor out_tensor, const at::Tensor &cdf,
     cudaEventSynchronize(stop3);
     float elapsedTime0;
     cudaEventElapsedTime(&elapsedTime0, start3, stop3);
-    // std::cout << "time taken for copy data: " << elapsedTime0 << " ms" << std::endl;
+    std::cout << "time taken for copy data: " << elapsedTime0 << " ms" << std::endl;
 
 
     const auto cdf_ptr = get_cdf_ptr_cuda(cdf);
     // std::cout << "N_sym: " << cdf_ptr.N_sym << std::endl;
 
-    // std::cout << "N_sym 1: " << cdf_ptr.N_sym << std::endl;
+    std::cout << "N_sym 1: " << cdf_ptr.N_sym << std::endl;
     cdf_t *cdf_data;
-    size_t size_cdf = blockNum * cdf_ptr.N_sym * cdf_ptr.Lp * sizeof(cdf_t) / scale; // Calculate the size of the array.
+    size_t size_cdf = blockNum * cdf_ptr.N_sym * cdf_ptr.Lp * sizeof(cdf_t); // Calculate the size of the array.
     cudaMalloc(&cdf_data, size_cdf);
     cudaMemcpy(cdf_data, cdf_ptr.data, size_cdf, cudaMemcpyHostToDevice);
     
@@ -408,7 +408,7 @@ void decode_fast(torch::Tensor out_tensor, const at::Tensor &cdf,
     const auto start_indices_len = start_indices.sizes();
     int start_indices_length = start_indices_len[0];
     int *start_index_arr_device = start_indices.data_ptr<int>();
-    // std::cout << "N_sym: " << cdf_ptr.N_sym << std::endl;
+    std::cout << "N_sym: " << cdf_ptr.N_sym << std::endl;
 
     cudaEvent_t start2, stop2;
     cudaEventCreate(&start2);
@@ -422,7 +422,7 @@ void decode_fast(torch::Tensor out_tensor, const at::Tensor &cdf,
     cudaEventSynchronize(stop2);
     float elapsedTime1;
     cudaEventElapsedTime(&elapsedTime1, start2, stop2);
-    // std::cout << "time taken for compute data: " << elapsedTime1 << " ms" << std::endl;
+    std::cout << "time taken for compute data: " << elapsedTime1 << " ms" << std::endl;
 
 
     cudaFree(d_str);
