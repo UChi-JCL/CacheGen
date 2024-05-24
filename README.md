@@ -16,23 +16,62 @@ python setup.py install
 
 GPU-version AC encoder will come soon!
 
-
 ## Example run
-To generate the KV cache given a text file, run
-```
-LAYERS=32 CHANNELS=4096 python main.py --generate_kv --path 9k_prompts/1.txt --save_dir <PATH TO YOUR HOME DIRECTORY>
-```
 
-
-To run encoding and decoding for a LongChat-7b model
+First generate KV caches with the following command
 ```
-mkdir data
-
-THREADS=128 BLOCKS=32 LAYERS=32 CHANNELS=4096 python main.py --path 9k_prompts/1.txt --save_dir <PATH TO YOUR HOME DIRECTORY>
+ python main.py --model_id <MODEL_ID> --save_dir <PATH TO ORIGINAL KV>  --path_to_context 9k_prompts/0.txt --doc_id 0
+ ```
+An example run is:
 
 ```
-Where ``LAYERS`` is the number of layers in the LLM, and ``CHANNELS`` is the number of channels in the LLM.
+python main.py \
+--model_id mistral-community/Mistral-7B-v0.2 \
+--save_dir data \
+--path_to_context 9k_prompts
+```
 
+Next, run the encoding of KV caches with the following command
+```
+python run_encoding.py \
+--num_chunks <TOTAL NUMBER OF CHUNKS> \
+--output_path <PATH TO ENCODED KVs> \
+--path_to_kv <PATH TO ORIGINAL KV> \
+--quantization_config <PATH TO QUANTIZATION CONFIG>
+```
+
+An example run can be:
+
+```
+python run_encoding.py \
+--num_chunks 4 \
+--output_path encoded \
+--path_to_kv data/test_kv_0.pkl \
+--quantization_config config/quantization_7b.json
+```
+
+Finally, run the actual inference (and loading encoded KV caches) 
+
+```
+python run_decoding_disk.py \
+--model_config <PATH TO MODEL CONFIG> \
+--path_to_encoded_kv <PATH TO ENCODED KVs> \
+--num_chunks <TOTAL NUMBER OF CHUNKS> \
+--quantization_config <PATH TO QUANTIZATION CONFIG> \
+--model_id <MODEL ID> \
+--path_to_context <PATH TO context>
+```
+
+An example run is:
+```
+python run_decoding_disk.py \
+--model_config config/mistral_7b.json \
+--path_to_encoded_kv encoded \
+--num_chunks 4 \
+--quantization_config config/quantization_7b.json \
+--model_id mistral-community/Mistral-7B-v0.2 \
+--path_to_context 9k_prompts/0.txt
+```
 
 
 ## References
