@@ -1,11 +1,13 @@
 from src.encoder.encoder import CacheGenEncoder
 import torch
 import pickle
-import torchac
+# import torchac
+import mytorchac
 import json
 from tqdm import tqdm
 import numpy as np
 import argparse
+import time
 p = argparse.ArgumentParser()
 p.add_argument("--path_to_kv", 
                type = str, 
@@ -113,14 +115,19 @@ def encode_function(path_to_original_kv, quantization_config, CHUNK_SIZE, output
     current_index = 0
     start_indices = []
     for l in range(cdf.shape[0]):
+        checkpoint1 = time.time()
         print("Done with layer", l)
         for i in range(CHUNK_SIZE * c, CHUNK_SIZE * (c + 1)):
-            bits = torchac.encode_float_cdf(cdf[l:l+1], \
-                encode_input[l:l+1, i].to(torch.int16) )
+            # bits = mytorchac.encode_float_cdf(cdf[l:l+1], \
+            #     encode_input[l:l+1, i].to(torch.int16) )
+            bits = mytorchac.encode_float_cdf(cdf[l:l+1], \
+                encode_input[l:l+1, i].to(torch.int16), use_cuda=True)
             length = len(bits)
             start_indices += [current_index]
             buffer[current_index:current_index + length] = np.frombuffer(bits, dtype=np.uint8)
             current_index += length
+        checkpoint2 = time.time()
+        print(f"time is: {checkpoint2 - checkpoint1}")
     output_dict[f"bitstreams"] = torch.ByteTensor(list(buffer[:current_index].tobytes()))
     output_dict[f"start_indices"] =  torch.tensor(start_indices).int()
     output_dict["cdf"] = _renorm_cast_cdf_(cdf.float(), 16)
