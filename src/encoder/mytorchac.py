@@ -7,21 +7,14 @@ import mytorchac_cuda
 
 PRECISION = 16
 
-
-# Load on-the-fly with ninja.
-torchac_dir = os.path.dirname(os.path.realpath(__file__))
-backend_dir = os.path.join(torchac_dir, 'backend')
-torchac_backend = load(
-  name="torchac_backend",
-  sources=[os.path.join(backend_dir, "torchac_backend.cpp")],
-  verbose=True)
-
-
 def encode_float_cdf(cdf_float,
                      sym,
                      needs_normalization=True,
                      check_input_bounds=False,
-                     use_cuda=False):
+                     use_cuda=False,
+                     max_out_size=1000,
+                     blockNum=1,
+                     threadNum=1):
   """Encode symbols `sym` with potentially unnormalized floating point CDF.
 
   Check the README for more details.
@@ -44,7 +37,7 @@ def encode_float_cdf(cdf_float,
     if sym.max() >= Lp - 1:
       raise ValueError
   cdf_int = _convert_to_int_and_normalize(cdf_float, needs_normalization)
-  return encode_int16_normalized_cdf(cdf_int, sym, use_cuda)
+  return encode_int16_normalized_cdf(cdf_int, sym, use_cuda, max_out_size, blockNum, threadNum)
 
 
 def decode_float_cdf(cdf_float, byte_stream, needs_normalization=True):
@@ -63,7 +56,7 @@ def decode_float_cdf(cdf_float, byte_stream, needs_normalization=True):
   return decode_int16_normalized_cdf(cdf_int, byte_stream)
 
 
-def encode_int16_normalized_cdf(cdf_int, sym, use_cuda):
+def encode_int16_normalized_cdf(cdf_int, sym, use_cuda, max_out_size, blockNum, threadNum):
   """Encode symbols `sym` with a normalized integer cdf `cdf_int`.
 
   Check the README for more details.
@@ -75,10 +68,9 @@ def encode_int16_normalized_cdf(cdf_int, sym, use_cuda):
   """
   cdf_int, sym = _check_and_reshape_inputs(cdf_int, sym)
   if not use_cuda:
-      return torchac_backend.encode_cdf(cdf_int, sym)
+      return mytorchac_cuda.encode_cdf(cdf_int, sym)
   else:
-      # import pdb; pdb.set_trace()
-      return mytorchac_cuda.encode_cuda(cdf_int, sym, 1000, 1, 1)
+      return mytorchac_cuda.encode_cuda(cdf_int, sym, max_out_size, blockNum, threadNum)
 
 
 def decode_int16_normalized_cdf(cdf_int, byte_stream):
@@ -93,7 +85,7 @@ def decode_int16_normalized_cdf(cdf_int, byte_stream):
   """
   cdf_reshaped = _check_and_reshape_inputs(cdf_int)
   # Merge the m dimensions into one.
-  sym = torchac_backend.decode_cdf(cdf_reshaped, byte_stream)
+  sym = mytorchac_cuda.decode_cdf(cdf_reshaped, byte_stream)
   return _reshape_output(cdf_int.shape, sym)
 
 

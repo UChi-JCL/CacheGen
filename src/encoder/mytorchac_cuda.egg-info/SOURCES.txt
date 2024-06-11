@@ -1,0 +1,8 @@
+MANIFEST.in
+mytorchac.py
+setup.py
+torchac_kernel.cu
+mytorchac_cuda.egg-info/PKG-INFO
+mytorchac_cuda.egg-info/SOURCES.txt
+mytorchac_cuda.egg-info/dependency_links.txt
+mytorchac_cuda.egg-info/top_level.txt
