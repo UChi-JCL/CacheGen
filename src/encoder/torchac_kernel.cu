@@ -224,7 +224,7 @@ __device__ void append_to_end(char* out, uint8_t cache, int* current_out_length)
 
 
 __device__ void append_to_end_uint(char* out, uint8_t cache, 
-                                   uint16_t device_out_offset, uint32_t current_out_length) {
+                                   uint32_t device_out_offset, uint32_t current_out_length) {
     // find the end of the string
     out[device_out_offset + current_out_length] = static_cast<char>(cache);
 
@@ -354,12 +354,12 @@ cdf_t binsearch(const cdf_t* cdf, cdf_t target, cdf_t max_sym,
 // cuda version (multi-threaded)
 __global__ void encode_with_cuda(int16_t* device_sym, 
                                  char* device_out, 
-                                 const uint16_t max_out_size,
+                                 const uint32_t max_out_size,
                                  const cdf_t *cdf, 
                                  const int N_sym, 
                                  const int Lp, 
                                  uint32_t* device_out_lengths,
-                                 const uint16_t total_num_of_threads) {
+                                 const uint32_t total_num_of_threads) {
     
     // printf("enter encode_with_cuda()\n");
 
@@ -378,15 +378,15 @@ __global__ void encode_with_cuda(int16_t* device_sym,
     const int max_symbol = Lp - 2;
 
     // multi-threading related variables
-    uint16_t thread_index = blockIdx.x * blockDim.x + threadIdx.x;
-    const uint16_t per_thread_sym_coverage = ceil(N_sym / total_num_of_threads);
-    const uint16_t sym_offset = thread_index * per_thread_sym_coverage;
-    const uint16_t device_out_offset = thread_index * max_out_size;
+    uint32_t thread_index = blockIdx.x * blockDim.x + threadIdx.x;
+    const uint32_t per_thread_sym_coverage = ceil(N_sym / total_num_of_threads);
+    const uint32_t sym_offset = thread_index * per_thread_sym_coverage;
+    const uint32_t device_out_offset = thread_index * max_out_size;
 
     // for (int i = 0; i < N_sym; ++i) {
     for (int i = sym_offset; i < sym_offset + per_thread_sym_coverage; ++i) {
 
-        const int16_t sym_i = device_sym[i];
+        const uint32_t sym_i = device_sym[i];
 
         const uint64_t span = static_cast<uint64_t>(high) - static_cast<uint64_t>(low) + 1;
 
@@ -406,6 +406,7 @@ __global__ void encode_with_cuda(int16_t* device_sym,
         while (true) {
             if (high < 0x80000000U) {
                 // out_cache.append_bit_and_pending(0, pending_bits);
+                
                 bit = 0;
                 cache <<= 1;
                 cache |= bit;
@@ -1014,7 +1015,7 @@ std::string to_string(const T &object)
 
 py::bytes encode_cuda(const at::Tensor &cdf, 
                       const at::Tensor &input_sym, 
-                      const uint16_t max_out_size,
+                      const uint32_t max_out_size,
                       const int blockNum, 
                       const int threadNum)
 {
@@ -1029,7 +1030,7 @@ py::bytes encode_cuda(const at::Tensor &cdf,
 
     // const uint16_t max_out_size = 10000;
 
-    const uint16_t total_num_of_threads = blockNum * threadNum;
+    const uint32_t total_num_of_threads = blockNum * threadNum;
 
     // allocate device memory for cdf
     // const auto cdf_ptr = get_cdf_ptr_cuda(cdf);
@@ -1099,9 +1100,8 @@ py::bytes encode_cuda(const at::Tensor &cdf,
     // for debugging
     uint32_t* local_out_lengths = new uint32_t[device_out_lengths_size];
     cudaMemcpy(local_out_lengths, device_out_lengths, device_out_lengths_size, cudaMemcpyDeviceToHost);
-
     // std::cout << "printing local_out_lengths" << std::endl;
-    // for (uint16_t thread_index = 0; thread_index < total_num_of_threads; thread_index++) {
+    // for (uint32_t thread_index = 0; thread_index < total_num_of_threads; thread_index++) {
     //     std::cout << local_out_lengths[thread_index] << " ";
     // }
     // std::cout << std::endl;
@@ -1113,7 +1113,7 @@ py::bytes encode_cuda(const at::Tensor &cdf,
     // concatenate valid results from different threads
     std::vector<char> valid_out;
     uint32_t valid_total_length = 0;
-    for (uint16_t thread_index = 0; thread_index < total_num_of_threads; thread_index++) {
+    for (uint32_t thread_index = 0; thread_index < total_num_of_threads; thread_index++) {
         uint32_t valid_length = local_out_lengths[thread_index];
         valid_total_length += valid_length;
 

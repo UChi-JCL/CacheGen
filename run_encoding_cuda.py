@@ -120,12 +120,12 @@ def encode_function(path_to_original_kv, quantization_config, CHUNK_SIZE, output
     
     import pdb; pdb.set_trace()
     checkpoint1 = time.time()
-    combined_bits = mytorchac.encode_float_cdf(cdf[0:1].repeat(50, 1, 1), 
-                                      encode_input[0:1, 0:50].to(torch.int16).squeeze(0), 
-                                      use_cuda=True, 
-                                      max_out_size=1000,
-                                      blockNum=1,
-                                      threadNum=50)
+    combined_bits = mytorchac.encode_float_cdf(cdf[0:1].repeat(1000, 1, 1), 
+                                               encode_input[0:1, 0:1000].to(torch.int16).squeeze(0), 
+                                               use_cuda=True, 
+                                               max_out_size=2000,
+                                               blockNum=1,
+                                               threadNum=1000)
     checkpoint2 = time.time()
     print(f"time is: {checkpoint2 - checkpoint1}")
     import pdb; pdb.set_trace()
@@ -133,7 +133,7 @@ def encode_function(path_to_original_kv, quantization_config, CHUNK_SIZE, output
     bits_sum = 0
     all_bits = []
     checkpoint1 = time.time()
-    for k in range(0, 50):
+    for k in range(0, 1000):
         bits = mytorchac.encode_float_cdf(cdf[0:1], 
                                           encode_input[0:1, k].to(torch.int16), 
                                           use_cuda=False)
@@ -142,6 +142,18 @@ def encode_function(path_to_original_kv, quantization_config, CHUNK_SIZE, output
     checkpoint2 = time.time()
     print(f"time is: {checkpoint2 - checkpoint1}")
     import pdb; pdb.set_trace()
+
+    current_position = 0
+    for k in range(len(all_bits)):
+        current_bytes_length = len(all_bits[k])
+        if combined_bits[current_position : current_position + current_bytes_length] == all_bits[k]:
+            print("Match")
+        else:
+            print("No match")
+            import pdb; pdb.set_trace()
+        current_position += current_bytes_length
+    import pdb; pdb.set_trace()
+
     
     for l in range(cdf.shape[0]):
         checkpoint1 = time.time()
