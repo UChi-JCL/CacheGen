@@ -1013,28 +1013,150 @@ std::string to_string(const T &object)
 // }
 
 
-py::bytes encode_cuda(const at::Tensor &cdf, 
-                      const at::Tensor &input_sym, 
-                      const uint32_t max_out_size,
-                      const int blockNum, 
-                      const int threadNum)
-{
-    // const std::string& in) {
-    // int tot_length = concatenatedString.length();
+// py::bytes encode_cuda(const at::Tensor &cdf, 
+//                       const at::Tensor &input_sym, 
+//                       const uint32_t max_out_size,
+//                       const int blockNum, 
+//                       const int threadNum)
+// {
+//     // const std::string& in) {
+//     // int tot_length = concatenatedString.length();
     
-    // cudaEvent_t start1, stop1;
-    // cudaEventCreate(&start1);
-    // cudaEventRecord(start1, 0);
-    // float elapsedTime1;
-    // float elapsedTime;
+//     // cudaEvent_t start1, stop1;
+//     // cudaEventCreate(&start1);
+//     // cudaEventRecord(start1, 0);
+//     // float elapsedTime1;
+//     // float elapsedTime;
 
-    // const uint16_t max_out_size = 10000;
+//     // const uint16_t max_out_size = 10000;
 
+//     const uint32_t total_num_of_threads = blockNum * threadNum;
+
+//     // allocate device memory for cdf
+//     // const auto cdf_ptr = get_cdf_ptr_cuda(cdf);
+//     // std::cout << "allocate device memory for cdf" << std::endl;
+//     const auto cdf_ptr = get_cdf_ptr(cdf);
+//     cdf_t *cdf_data;
+//     const size_t size_cdf = cdf_ptr.N_sym * cdf_ptr.Lp * sizeof(cdf_t); // Calculate the size of the array.
+//     cudaMalloc(&cdf_data, size_cdf);
+//     cudaMemcpy(cdf_data, cdf_ptr.data, size_cdf, cudaMemcpyHostToDevice);
+    
+//     // allocate device memory for device_sym (AC input)
+//     // std::cout << "allocate device memory for device_sym (AC input)" << std::endl;
+//     int16_t* device_sym;
+//     const size_t device_sym_size = input_sym.numel() * sizeof(int16_t);
+//     cudaMalloc(&device_sym, device_sym_size);
+//     cudaMemcpy(device_sym, input_sym.data_ptr<int16_t>(), device_sym_size, cudaMemcpyHostToDevice);
+
+//     // allocate device memory for device_out (AC output)
+//     // NOTE: need separate memory for each thread
+//     // std::cout << "allocate device memory for device_out (AC output)" << std::endl;
+//     char* device_out;
+//     const size_t device_out_size = max_out_size * total_num_of_threads * sizeof(char);
+//     cudaMalloc(&device_out, device_out_size);
+//     cudaMemset(device_out, 0, device_out_size);
+
+//     // allocate device memory for device_out_lengths
+//     // NOTE: need separate memory for each thread
+//     // std::cout << "allocate device memory for device_out_lengths" << std::endl;
+//     uint32_t* device_out_lengths;
+//     const size_t device_out_lengths_size = total_num_of_threads * sizeof(uint32_t);
+//     cudaMalloc(&device_out_lengths, device_out_lengths_size);
+//     cudaMemset(device_out_lengths, 0, device_out_lengths_size);
+
+//     // torch::Tensor out_tensor = torch::zeros(
+//     //     {all_tokens, cdf_ptr.N_sym}, torch::kInt32).to(torch::kCUDA);
+//     // int *out_arr = out_tensor.data_ptr<int>();
+
+//     // Copy the start and end indices to the GPU
+//     // int *device_start_index;
+//     // int *device_end_index;
+//     // cudaMalloc(&device_start_index, all_tokens * sizeof(int));
+//     // cudaMalloc(&device_end_index, all_tokens * sizeof(int));
+//     // cudaMemcpy(device_start_index, start_index, all_tokens * sizeof(int), cudaMemcpyHostToDevice);
+//     // cudaMemcpy(device_end_index, end_index, all_tokens * sizeof(int), cudaMemcpyHostToDevice);
+    
+//     // cudaEventCreate(&stop1);
+//     // cudaEventRecord(stop1, 0);
+//     // cudaEventSynchronize(stop1);
+//     // cudaEventElapsedTime(&elapsedTime1, start1, stop1);
+//     // std::cout << "time taken to move data: " << elapsedTime1 << " ms" << std::endl;
+
+//     // cudaEvent_t start, stop;
+//     // cudaEventCreate(&start);
+//     // cudaEventRecord(start, 0);
+
+//     // std::cout << "before entering encode_with_cuda()" << std::endl;
+//     encode_with_cuda<<<blockNum, threadNum>>>(device_sym, 
+//                                               device_out, 
+//                                               max_out_size, 
+//                                               cdf_data, 
+//                                               cdf_ptr.N_sym, 
+//                                               cdf_ptr.Lp, 
+//                                               device_out_lengths,
+//                                               total_num_of_threads);
+//     // std::cout << "after returning from encode_with_cuda()" << std::endl;
+
+//     // for debugging
+//     uint32_t* local_out_lengths = new uint32_t[device_out_lengths_size];
+//     cudaMemcpy(local_out_lengths, device_out_lengths, device_out_lengths_size, cudaMemcpyDeviceToHost);
+//     // std::cout << "printing local_out_lengths" << std::endl;
+//     // for (uint32_t thread_index = 0; thread_index < total_num_of_threads; thread_index++) {
+//     //     std::cout << local_out_lengths[thread_index] << " ";
+//     // }
+//     // std::cout << std::endl;
+
+//     // move encoded data back to main memory
+//     std::vector<char> host_out(device_out_size);
+//     cudaMemcpy(host_out.data(), device_out, device_out_size, cudaMemcpyDeviceToHost);
+    
+//     // concatenate valid results from different threads
+//     std::vector<char> valid_out;
+//     uint32_t valid_total_length = 0;
+//     for (uint32_t thread_index = 0; thread_index < total_num_of_threads; thread_index++) {
+//         uint32_t valid_length = local_out_lengths[thread_index];
+//         valid_total_length += valid_length;
+
+//         // append to valid_out
+//         valid_out.insert(valid_out.end(), host_out.begin() + thread_index * max_out_size, host_out.begin() + thread_index * max_out_size + valid_length);
+//     }
+
+//     // cudaEventCreate(&stop);
+//     // cudaEventRecord(stop, 0);
+//     // cudaEventSynchronize(stop);
+
+//     // cudaEventElapsedTime(&elapsedTime, start, stop);
+//     // cudaFree(d_str);
+//     // cudaFree(cdf_data);
+//     // cudaFree(device_start_index);
+//     // cudaFree(device_end_index);
+//     // std::cout << "Time taken by decode_cuda kernels: " << elapsedTime << " ms" << std::endl;
+
+//     // cudaEventDestroy(start);
+//     // cudaEventDestroy(stop);
+
+//     // return out_tensor;
+    
+//     cudaFree(cdf_data);
+//     cudaFree(device_sym);
+//     cudaFree(device_out);
+    
+//     // std::cout << "before returning py::bytes()" << std::endl;
+
+//     // return py::bytes(host_out.data(), local_out_lengths[0]);
+//     return py::bytes(valid_out.data(), valid_total_length);
+// }
+
+
+std::vector<py::bytes> encode_cuda(const at::Tensor &cdf, 
+                                   const at::Tensor &input_sym, 
+                                   const uint32_t max_out_size,
+                                   const int blockNum, 
+                                   const int threadNum)
+{
     const uint32_t total_num_of_threads = blockNum * threadNum;
 
     // allocate device memory for cdf
-    // const auto cdf_ptr = get_cdf_ptr_cuda(cdf);
-    // std::cout << "allocate device memory for cdf" << std::endl;
     const auto cdf_ptr = get_cdf_ptr(cdf);
     cdf_t *cdf_data;
     const size_t size_cdf = cdf_ptr.N_sym * cdf_ptr.Lp * sizeof(cdf_t); // Calculate the size of the array.
@@ -1064,28 +1186,6 @@ py::bytes encode_cuda(const at::Tensor &cdf,
     cudaMalloc(&device_out_lengths, device_out_lengths_size);
     cudaMemset(device_out_lengths, 0, device_out_lengths_size);
 
-    // torch::Tensor out_tensor = torch::zeros(
-    //     {all_tokens, cdf_ptr.N_sym}, torch::kInt32).to(torch::kCUDA);
-    // int *out_arr = out_tensor.data_ptr<int>();
-
-    // Copy the start and end indices to the GPU
-    // int *device_start_index;
-    // int *device_end_index;
-    // cudaMalloc(&device_start_index, all_tokens * sizeof(int));
-    // cudaMalloc(&device_end_index, all_tokens * sizeof(int));
-    // cudaMemcpy(device_start_index, start_index, all_tokens * sizeof(int), cudaMemcpyHostToDevice);
-    // cudaMemcpy(device_end_index, end_index, all_tokens * sizeof(int), cudaMemcpyHostToDevice);
-    
-    // cudaEventCreate(&stop1);
-    // cudaEventRecord(stop1, 0);
-    // cudaEventSynchronize(stop1);
-    // cudaEventElapsedTime(&elapsedTime1, start1, stop1);
-    // std::cout << "time taken to move data: " << elapsedTime1 << " ms" << std::endl;
-
-    // cudaEvent_t start, stop;
-    // cudaEventCreate(&start);
-    // cudaEventRecord(start, 0);
-
     // std::cout << "before entering encode_with_cuda()" << std::endl;
     encode_with_cuda<<<blockNum, threadNum>>>(device_sym, 
                                               device_out, 
@@ -1110,32 +1210,21 @@ py::bytes encode_cuda(const at::Tensor &cdf,
     std::vector<char> host_out(device_out_size);
     cudaMemcpy(host_out.data(), device_out, device_out_size, cudaMemcpyDeviceToHost);
     
-    // concatenate valid results from different threads
+    // extract valid results from different threads
     std::vector<char> valid_out;
+    std::vector<py::bytes> all_results;
     uint32_t valid_total_length = 0;
+    
     for (uint32_t thread_index = 0; thread_index < total_num_of_threads; thread_index++) {
         uint32_t valid_length = local_out_lengths[thread_index];
         valid_total_length += valid_length;
 
-        // append to valid_out
-        valid_out.insert(valid_out.end(), host_out.begin() + thread_index * max_out_size, host_out.begin() + thread_index * max_out_size + valid_length);
+        std::vector<char> current_result(host_out.begin() + thread_index * max_out_size, 
+                                         host_out.begin() + thread_index * max_out_size + valid_length);
+
+        // append result to all_results
+        all_results.push_back(py::bytes(current_result.data(), valid_length));
     }
-
-    // cudaEventCreate(&stop);
-    // cudaEventRecord(stop, 0);
-    // cudaEventSynchronize(stop);
-
-    // cudaEventElapsedTime(&elapsedTime, start, stop);
-    // cudaFree(d_str);
-    // cudaFree(cdf_data);
-    // cudaFree(device_start_index);
-    // cudaFree(device_end_index);
-    // std::cout << "Time taken by decode_cuda kernels: " << elapsedTime << " ms" << std::endl;
-
-    // cudaEventDestroy(start);
-    // cudaEventDestroy(stop);
-
-    // return out_tensor;
     
     cudaFree(cdf_data);
     cudaFree(device_sym);
@@ -1144,7 +1233,8 @@ py::bytes encode_cuda(const at::Tensor &cdf,
     // std::cout << "before returning py::bytes()" << std::endl;
 
     // return py::bytes(host_out.data(), local_out_lengths[0]);
-    return py::bytes(valid_out.data(), valid_total_length);
+    // return py::bytes(valid_out.data(), valid_total_length);
+    return all_results;
 }
 
 

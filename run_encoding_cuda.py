@@ -118,68 +118,44 @@ def encode_function(path_to_original_kv, quantization_config, CHUNK_SIZE, output
     current_index = 0
     start_indices = []
     
-    import pdb; pdb.set_trace()
+    # This example features the first LAYER only
+    num_threads = 1000
+    layer_index = 1
+    num_tokens = 1000
+    
+    # CUDA-accelerated encoding
     checkpoint1 = time.time()
-    combined_bits = mytorchac.encode_float_cdf(cdf[0:1].repeat(1000, 1, 1), 
-                                               encode_input[0:1, 0:1000].to(torch.int16).squeeze(0), 
+    
+    all_bits_cuda = mytorchac.encode_float_cdf(cdf[layer_index:layer_index+1].repeat(num_tokens, 1, 1), 
+                                               encode_input[layer_index:layer_index+1, :num_tokens].to(torch.int16).squeeze(0), 
                                                use_cuda=True, 
-                                               max_out_size=2000,
+                                               max_out_size=10000,
                                                blockNum=1,
-                                               threadNum=1000)
-    checkpoint2 = time.time()
-    print(f"time is: {checkpoint2 - checkpoint1}")
-    import pdb; pdb.set_trace()
+                                               threadNum=num_threads)
     
-    bits_sum = 0
-    all_bits = []
+    checkpoint2 = time.time()
+    print(f"CUDA-accelerated encoding time is: {checkpoint2 - checkpoint1} (s)")
+    
+    # CPU-based encoding
     checkpoint1 = time.time()
-    for k in range(0, 1000):
-        bits = mytorchac.encode_float_cdf(cdf[0:1], 
-                                          encode_input[0:1, k].to(torch.int16), 
-                                          use_cuda=False)
-        bits_sum += len(bits)
-        all_bits.append(bits)
-    checkpoint2 = time.time()
-    print(f"time is: {checkpoint2 - checkpoint1}")
-    import pdb; pdb.set_trace()
-
-    current_position = 0
-    for k in range(len(all_bits)):
-        current_bytes_length = len(all_bits[k])
-        if combined_bits[current_position : current_position + current_bytes_length] == all_bits[k]:
-            print("Match")
-        else:
-            print("No match")
-            import pdb; pdb.set_trace()
-        current_position += current_bytes_length
-    import pdb; pdb.set_trace()
-
     
-    for l in range(cdf.shape[0]):
-        checkpoint1 = time.time()
-        print("Done with layer", l)
-        import pdb; pdb.set_trace()
-        for i in range(CHUNK_SIZE * c, CHUNK_SIZE * (c + 1)):
-            # bits = mytorchac.encode_float_cdf(cdf[l:l+1], \
-            #     encode_input[l:l+1, i].to(torch.int16) )
-            bits = mytorchac.encode_float_cdf(cdf[l:l+1], 
-                                              encode_input[l:l+1, i].to(torch.int16), 
-                                              use_cuda=True, 
-                                              max_out_size=1000,
-                                              blockNum=1,
-                                              threadNum=1)
-            length = len(bits)
-            start_indices += [current_index]
-            buffer[current_index:current_index + length] = np.frombuffer(bits, dtype=np.uint8)
-            current_index += length
-        checkpoint2 = time.time()
-        print(f"time is: {checkpoint2 - checkpoint1}")
-    output_dict[f"bitstreams"] = torch.ByteTensor(list(buffer[:current_index].tobytes()))
-    output_dict[f"start_indices"] =  torch.tensor(start_indices).int()
-    output_dict["cdf"] = _renorm_cast_cdf_(cdf.float(), 16)
-    output_dict["max_tensors_key"] = concat_max(encoder.max_tensors_key)
-    output_dict["max_tensors_value"] = concat_max(encoder.max_tensors_value)
-    pickle.dump(output_dict, open(output_path, "wb"))
+    all_bits_cpu = []
+    for k in range(0, num_tokens):
+        bits = mytorchac.encode_float_cdf(cdf[layer_index:layer_index+1], 
+                                          encode_input[layer_index:layer_index+1, k].to(torch.int16), 
+                                          use_cuda=False)
+        all_bits_cpu.append(bits)
+    
+    checkpoint2 = time.time()
+    print(f"CPU-based encoding time is: {checkpoint2 - checkpoint1} (s)")
+    
+    # check for correctness
+    correctness_match = (all_bits_cuda == all_bits_cpu)
+    if correctness_match:
+        print("Correctness test PASSED")
+    else:
+        print("Correctness test FAILED")
+
 
 if __name__ == "__main__":
     

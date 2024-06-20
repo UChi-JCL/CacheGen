@@ -70,7 +70,8 @@ def encode_int16_normalized_cdf(cdf_int, sym, use_cuda, max_out_size, blockNum, 
   if not use_cuda:
       return mytorchac_cuda.encode_cdf(cdf_int, sym)
   else:
-      return mytorchac_cuda.encode_cuda(cdf_int, sym, max_out_size, blockNum, threadNum)
+      all_results = mytorchac_cuda.encode_cuda(cdf_int, sym, max_out_size, blockNum, threadNum)
+      return all_results
 
 
 def decode_int16_normalized_cdf(cdf_int, byte_stream):
