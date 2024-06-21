@@ -1,4 +1,5 @@
 MANIFEST.in
+README.md
 mytorchac.py
 setup.py
 torchac_kernel.cu
