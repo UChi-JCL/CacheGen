@@ -1,0 +1,3 @@
+[submodule "LMCache"]
+	path = LMCache
+	url = https://github.com/LMCache/LMCache.git
