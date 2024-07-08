@@ -8,6 +8,11 @@ import pickle
 import time
 import logging
 import os
+import torch
+import argparse
+p = argparse.ArgumentParser()
+p.add_argument("--encoded_dir", type = str, default = "encoded", help="The directory to encoded kv. ")
+args = p.parse_args()
 logging.basicConfig(format= '[%(asctime)s] %(levelname)s - %(message)s', level=logging.INFO)
 
 def get_sleep_time(chunk_size_bytes, rate_kBytesPerSec, speed_up_ratio=1.0):
@@ -22,18 +27,29 @@ class BitstreamServer:
     Initialize once and serves the file request
     """
 
-    def __init__(self, path_keys, path_values):
+    def __init__(self):
         self.files_dict = {}
-        with open(path_keys, "rb") as fin:
-            self.files_dict[(0, 0, 0, 0)] = pickle.dumps( pickle.load(fin))
-        with open(path_values, "rb") as fin:
-            self.files_dict[(0, 0, 0, 1)] = pickle.dumps(pickle.load(fin))
+        all_files = os.listdir(args.encoded_dir)
+        # all_docs = []
+        quality = 0
+        # for file in all_files:
+        #     doc_id = int(file.split("doc_")[1].split("_")[0])
+        #     all_docs.append(doc_id)
+        
+        for file in all_files:
+            if ".pkl" not in file: continue
+            doc_id = int(file.split("doc_")[1].split("_")[0])
+            chunk_id = int(file.split("doc_")[1].split("_")[-1].split(".")[0])
+            file_key = (doc_id, chunk_id, quality)
+            if file_key not in self.files_dict:
+                self.files_dict[file_key] = pickle.load(open(f"{args.encoded_dir}/{file}", "rb")) # torch.load(f"{args.encoded_dir}/{file}")
+        # self.files_dict[()]
         print("Data loaded successfully, ", self.files_dict.keys())
-    def get(self, document_id, chunk_id, quality, key_or_value):
+    def get(self, document_id, chunk_id, quality):
         """
         Returns the bytestream for the given parameters
         """
-        file_key = (document_id, chunk_id, quality, key_or_value)
+        file_key = (document_id, chunk_id, quality)
         print("File key is: ", file_key)
         if file_key not in self.files_dict:
             logging.warning("Data not found for the given parameters")
@@ -43,8 +59,7 @@ class BitstreamServer:
         return file_data
 
 class RequestHandler(BaseHTTPRequestHandler):
-    file_dict = BitstreamServer(f"{os.environ['TMP_DIR']}/test_bits_k.pkl", \
-        f"{os.environ['TMP_DIR']}/test_bits_v.pkl")
+    file_dict = BitstreamServer()
     executor = ThreadPoolExecutor()
 
     async def write_and_flush(self, data):
@@ -63,12 +78,11 @@ class RequestHandler(BaseHTTPRequestHandler):
         document_id = data['document_id']
         chunk_id = data['chunk_id']
         quality = data['quality']
-        key_or_value = data['key_or_value']
         target_latency = data['target_latency']
 
         # Lookup in the dictionary
         
-        file_data = self.file_dict.get(document_id, chunk_id, quality, key_or_value)
+        file_data = self.file_dict.get(document_id, chunk_id, quality)
 
         if file_data is not None:
             self.send_response(200)

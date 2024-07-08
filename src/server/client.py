@@ -8,7 +8,7 @@ logging.basicConfig(format= '[%(asctime)s] %(levelname)s - %(message)s', level=l
 def GbpsToKBytesPerSecond(gbps):
     return gbps * 125000
 
-def send_request(document_id, chunk_id, quality, key_or_value, target_latency):
+def send_request(document_id, chunk_id, quality,  target_latency):
     """
     rate is KBytes per second
     Returns the received byte array, or None if there was an error
@@ -28,7 +28,6 @@ def send_request(document_id, chunk_id, quality, key_or_value, target_latency):
         'document_id': document_id,
         'chunk_id': chunk_id,
         'quality': quality,
-        'key_or_value': key_or_value,
         'target_latency': target_latency - fixed_overhead
     }
 
@@ -47,8 +46,8 @@ def send_request(document_id, chunk_id, quality, key_or_value, target_latency):
 
 if __name__ == '__main__':
     #rate = GbpsToKBytesPerSecond(0.6)
-    target_latency = 0.2
+    target_latency = 0.03
     start = time.time()
-    send_request(0, 0, 0, 0, target_latency)  # Example usage
+    send_request(0, 0, 0, target_latency)  # Example usage
     end = time.time()
 
