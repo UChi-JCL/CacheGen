@@ -5,12 +5,26 @@ import os
 import time
 import pickle
 import torch
+from lmcache.config import LMCacheEngineConfig, LMCacheEngineMetadata
+from lmcache.storage_backend.serde.cachegen_encoder import CacheGenSerializer
 os.environ['HF_TOKEN'] = "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"
 from src.cachegen_engine import CacheGenController
 import json
 from torch.profiler import profile, record_function, ProfilerActivity
 from fastchat.model import load_model
+
+
+
+
+def to_blob(kv_tuples):
+    """ Transform a list of tuples of key and value tensors to a single tensor
+    """
+    return torch.stack([torch.stack(inner_tuple, dim=0) for inner_tuple in kv_tuples], dim=0)
+
 p = argparse.ArgumentParser()
+
+
+
 p.add_argument("--path", type = str, default = "7k_prompts/1.txt", help="Path to the context file")
 p.add_argument("--model_id", type = str, default = "lmsys/longchat-7b-16k")
 # p.add_argument("--kv_path", type = int, default = 0)
@@ -54,12 +68,22 @@ if __name__ == "__main__":
     key_value = []
     for i in range(len(kv)):
         kv[i] = list(kv[i])
-        kv[i][0] = kv[i][0][:, :, :-1]
-        kv[i][1] = kv[i][1][:, :, :-1]
-        key_tensor = kv[i][0].permute((0, 2, 1, 3)).reshape((1, kv[i][0].shape[2], -1))
-        value_tensor = kv[i][1].permute((0, 2, 1, 3)).reshape((1, kv[i][1].shape[2], -1))
-        key_value += [ torch.cat((key_tensor,value_tensor), dim=0).unsqueeze(0)]
+        kv[i][0] = kv[i][0][:, :, :-1][0]
+        kv[i][1] = kv[i][1][:, :, :-1][0]
+        # key_tensor = kv[i][0].permute((0, 2, 1, 3)).reshape((1, kv[i][0].shape[2], -1))
+        # value_tensor = kv[i][1].permute((0, 2, 1, 3)).reshape((1, kv[i][1].shape[2], -1))
+        # key_value += [ torch.cat((key_tensor,value_tensor), dim=0).unsqueeze(0)]
         kv[i] = tuple(kv[i])
+    
     kv = tuple(kv)
-    key_value = torch.cat(key_value, dim=0)
-    pickle.dump(kv, open(f"{args.save_dir}/test_kv_{args.doc_id}.pkl", "wb"))
+    
+    kv_tensor = to_blob(kv)
+    torch.save(kv_tensor, f"{args.save_dir}/test_kv_{args.doc_id}.pt")
+    
+    # lmcache_config = LMCacheEngineConfig.from_defaults()
+    # meta_data = LMCacheEngineMetadata(model_name=args.model_id, fmt="huggingface", world_size=1, worker_id=0)
+    # cachegen_serializer = CacheGenSerializer(lmcache_config, meta_data)
+    
+    # bytes = cachegen_serializer.to_bytes(key_value)
+    # breakpoint()
+    # pickle.dump(kv, open(f"{args.save_dir}/test_kv_{args.doc_id}.pkl", "wb"))
