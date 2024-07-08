@@ -1,6 +1,0 @@
-setup.py
-torchac_kernel_layer.cu
-torchac_cuda_layer.egg-info/PKG-INFO
-torchac_cuda_layer.egg-info/SOURCES.txt
-torchac_cuda_layer.egg-info/dependency_links.txt
-torchac_cuda_layer.egg-info/top_level.txt
