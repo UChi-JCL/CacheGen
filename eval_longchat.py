@@ -60,7 +60,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     correct = 0
     for i in range(args.start, args.end):
-        gt_path = f"{args.results_dir}/gt_{i}.txt"
+        gt_path = f"{args.results_dir}/gt_v0.2_{i}.txt"
         cachegen_path = f"{args.results_dir}/{args.result_str}_{i}.txt"
         with open(gt_path, "r") as f:
             gt_result = f.read()
