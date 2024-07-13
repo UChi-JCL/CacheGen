@@ -25,7 +25,10 @@ class CacheGenConfig:
 
     @staticmethod
     def from_model_name(model_name: str) -> "CacheGenConfig":
-        family_7b = ["mistralai/Mistral-7B-Instruct-v0.2", "lmsys/longchat-7b-16k"]
+        family_7b = ["mistralai/Mistral-7B-Instruct-v0.2",
+                     "mistral-community/Mistral-7B-v0.2",
+                      "lmsys/longchat-7b-16k"]
+        family_70b = [""]
 
         if model_name in family_7b:
             return CacheGenConfig(

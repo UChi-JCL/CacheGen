@@ -1,10 +1,10 @@
 import torch
 from fastchat.model import load_model
-
+from transformers import AutoModelForCausalLM, AutoTokenizer
 def to_blob(kv_tuples):
     """ Transform a list of tuples of key and value tensors to a single tensor
     """
-    return torch.stack([torch.stack(inner_tuple, dim=0) for inner_tuple in kv_tuples], dim=0)
+    return torch.stack([torch.stack(inner_tuple, dim=0).to("cuda:0") for inner_tuple in kv_tuples], dim=0)
 
 def define_model_and_tokenizer(model_id, num_gpus=1, max_gpu_memory=48):
     """ Define the model and tokenizer
@@ -18,6 +18,7 @@ def define_model_and_tokenizer(model_id, num_gpus=1, max_gpu_memory=48):
             cpu_offloading=False,
             debug=False,
         )
+
     return model, tokenizer
 
 
@@ -55,12 +56,22 @@ def torch_quant(bins: int, qA: torch.Tensor):
 def default_quantization(kv, bins):
     """ Quantize the key value tensors into tuple of key and value tensors
     """
-    new_kv = []
+    channels = kv.shape[-1] * kv.shape[-3]
     for i in range(len(kv)):
         key = kv[i][0]
         value = kv[i][1]
+        key = key.permute((1, 0, 2)).reshape(kv.shape[-2], channels)
+        value = value.permute((1, 0, 2)).reshape(value.shape[-2], channels)
+        key, _ = torch_quant(bins, key)
+        value, _ = torch_quant(bins, value)
+        quant_key = key.reshape(kv[i][0].shape[-2], kv[i][0].shape[-3], kv[i][0].shape[-1]).permute((1, 0, 2))
+        quant_value = value.reshape(kv[i][1].shape[-2], kv[i][1].shape[-3], kv[i][1].shape[-1]).permute((1, 0, 2))
+        # quant_key, _ = torch_quant(bins, key.flatten())
+        # quant_value, _ = torch_quant(bins, value.flatten())
+        # quant_key = quant_key.reshape(key.shape)
+        # quant_value = quant_value.reshape(value.shape)
+        kv[i][0] = quant_key
+        kv[i][1] = quant_value
+    kv = kv[:, :, :, :-10]
+    return tensor_to_tuple(kv)
 
-        key_q, _ = torch_quant(bins, key)
-        value_q, _ = torch_quant(bins, value)
-        new_kv.append((key_q.unsqueeze(0)[:, :, :-1], value_q.unsqueeze(0)[:, :, :-1]))
-    return tuple(new_kv)
