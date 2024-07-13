@@ -5,6 +5,7 @@ import os
 import time
 import pickle
 import torch
+from src.attention_monkey_patch import replace_llama_forward_with_reuse_forward
 from lmcache.config import LMCacheEngineConfig, LMCacheEngineMetadata
 from lmcache.storage_backend.serde.cachegen_encoder import CacheGenSerializer
 from lmcache.storage_backend.serde.cachegen_decoder import CacheGenDeserializer
@@ -34,7 +35,9 @@ if __name__ == "__main__":
     # Check if results_dir is exists
     if not os.path.exists(args.results_dir):
         os.makedirs(args.results_dir, exist_ok=True)
-    model, tokenizer = load_model(args.model_id, num_gpus=args.num_gpus, max_gpu_memory=args.max_gpu_memory)
+    
+    replace_llama_forward_with_reuse_forward()
+    model, tokenizer = define_model_and_tokenizer(args.model_id, num_gpus=args.num_gpus, max_gpu_memory=args.max_gpu_memory)
     for doc_id in range(args.start, args.end):
         key_value = torch.load(f"{args.save_dir}/raw_kv_{doc_id}.pt")
         lmcache_config = LMCacheEngineConfig.from_defaults(chunk_size=key_value.shape[-2])
