@@ -28,7 +28,7 @@ class CacheGenConfig:
         family_7b = ["mistralai/Mistral-7B-Instruct-v0.2",
                      "mistral-community/Mistral-7B-v0.2",
                       "lmsys/longchat-7b-16k"]
-        family_70b = [""]
+        family_70b = ["Yukang/LongAlpaca-70B-16k"]
 
         if model_name in family_7b:
             return CacheGenConfig(
@@ -39,6 +39,18 @@ class CacheGenConfig:
                 key_second_bins=16,
                 key_third_bins=16,
                 value_first_layers=2,
+                value_first_bins=32,
+                value_second_bins=16
+            )
+        elif model_name in family_70b:
+            return CacheGenConfig(
+                key_first_layers=20,
+                key_second_layers=40,
+                key_third_layers=80,
+                key_first_bins=32,
+                key_second_bins=16,
+                key_third_bins=16,
+                value_first_layers=4,
                 value_first_bins=32,
                 value_second_bins=16
             )
