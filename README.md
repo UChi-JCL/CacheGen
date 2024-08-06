@@ -12,6 +12,7 @@ The code structure is organized as follows:
 To install the required **python** packages to run CacheGen with conda
 ```
 conda env create -f env.yaml
+conda activate cachegen
 pip install -e LMCache
 cd LMCache/third_party/torchac_cuda 
 python setup.py install

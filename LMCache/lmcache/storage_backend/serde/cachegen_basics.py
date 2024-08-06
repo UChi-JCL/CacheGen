@@ -48,9 +48,9 @@ class CacheGenConfig:
                 key_second_layers=40,
                 key_third_layers=80,
                 key_first_bins=32,
-                key_second_bins=16,
+                key_second_bins=32,
                 key_third_bins=16,
-                value_first_layers=4,
+                value_first_layers=20,
                 value_first_bins=32,
                 value_second_bins=16
             )

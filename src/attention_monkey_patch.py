@@ -55,13 +55,12 @@ def reuse_forward(
     if past_key_value is not None:
         # sin and cos are specific to RoPE models; cache_position needed for the static cache
         cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
-        past_key_value.key_cache[self.layer_idx] = past_key_value.key_cache[self.layer_idx].to(hidden_states.device)    
-        past_key_value.value_cache[self.layer_idx] = past_key_value.value_cache[self.layer_idx].to(hidden_states.device)
         key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
-
+    if os.environ['DOC_ID'] == "1":
+        breakpoint()
     key_states = repeat_kv(key_states, self.num_key_value_groups)
     value_states = repeat_kv(value_states, self.num_key_value_groups)
-
+    
     attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
 
     if attention_mask is not None:  # no matter the length, we just slice it
