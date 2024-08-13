@@ -13,7 +13,7 @@ bash scripts/7b.sh longchat 0
 
 This will output CacheGen's size of KV cache on the LongChat dataset. 
 
-If you want to test the accuracy, you need to set the **OPENAI api key**
+If you want to test the accuracy, you need to set the **OPENAI api key** (You can obtain the key here: https://platform.openai.com/api-keys)
 ```
 export OPENAI_API_KEY=<YOUR API KEY>
 export SAVE_DIR=.
