@@ -80,12 +80,15 @@ if __name__ == "__main__":
         input_ids = tokenizer(text, return_tensors="pt").input_ids.cuda()
         output = model.generate(input_ids, past_key_values=decoded_kv, max_new_tokens=20)
         prediction = tokenizer.decode(output[0][input_ids.shape[1]:], skip_special_tokens=True)
-        with open(f"{args.results_dir}/{args.results_str}_{doc_id}.txt", "w") as f:
-            f.write(prediction)
         if args.calculate_metric == 1:
-            metric = calculate_acc(args.dataset_name, prediction, data[doc_id]['label'])
-            average_acc += [metric]
-        print(prediction, data[doc_id]['label'][0])
+            if args.dataset_name == "longchat":
+                metric = calculate_acc(args.dataset_name, prediction, data[doc_id]['label'])
+                average_acc += [metric]
+            elif args.dataset_name == "nqa" or args.dataset_name == "tqa":
+                metric = calculate_acc(args.dataset_name, prediction, data[doc_id])
+                average_acc += [metric]
+        if args.dataset_name == "longchat":
+            print(prediction, data[doc_id]['label'][0])
     if args.calculate_metric == 1:
         print("Average accuracy is: ", np.mean(average_acc))
     print(f"Average size of KV cache: {np.mean(avg_size)}MB")

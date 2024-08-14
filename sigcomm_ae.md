@@ -38,3 +38,18 @@ export SAVE_DIR=.
 bash scripts/70b.sh longchat 1
 ```
 This will output the accuracy and size of KV cache on the LongChat dataset. 
+
+
+To run with the **NarrativeQA** dataset, run the following code:
+```
+export SAVE_DIR=.
+bash scripts/70b.sh nqa 1
+```
+This will output the accuracy and size of KV cache on the NarrativeQA dataset. 
+
+To run with the **TriviaQA** dataset, run the following code:
+```
+export SAVE_DIR=.
+bash scripts/70b.sh tqa 1
+```
+This will output the accuracy and size of KV cache on the TriviaQA dataset. 

@@ -5,9 +5,52 @@ import json
 import time
 import argparse
 import json
-
+import numpy as np
 import openai
+from collections import Counter
+import re 
+import string 
+def f1_score(prediction, ground_truth, **kwargs):
+    common = Counter(prediction) & Counter(ground_truth)
+    num_same = sum(common.values())
+    if num_same == 0:
+        return 0
+    precision = 1.0 * num_same / len(prediction)
+    recall = 1.0 * num_same / len(ground_truth)
+    f1 = (2 * precision * recall) / (precision + recall)
+    return f1
+def qa_f1_score(prediction, ground_truth, **kwargs):
+    normalized_prediction = normalize_answer(prediction)
+    normalized_ground_truth = normalize_answer(ground_truth)
 
+    prediction_tokens = normalized_prediction.split()
+    ground_truth_tokens = normalized_ground_truth.split()
+    return f1_score(prediction_tokens, ground_truth_tokens)
+
+
+def normalize_answer(s):
+    """Lower text and remove punctuation, articles and extra whitespace."""
+
+    def remove_articles(text):
+        return re.sub(r"\b(a|an|the)\b", " ", text)
+
+    def white_space_fix(text):
+        return " ".join(text.split())
+
+    def remove_punc(text):
+        exclude = set(string.punctuation)
+        return "".join(ch for ch in text if ch not in exclude)
+
+    def lower(text):
+        return text.lower()
+
+    return white_space_fix(remove_articles(remove_punc(lower(s))))
+
+
+dataset2metric = {
+    "nqa": qa_f1_score,
+    "tqa": qa_f1_score,
+}
 
 MAX_API_RETRY = 5
 REQ_TIME_GAP = 2
@@ -39,7 +82,17 @@ def get_eval(user_prompt):
             time.sleep(5)
     print(f"Failed after {MAX_API_RETRY} retries.")
     return "error"
-
+def scorer_e(dataset, predictions, answers, all_classes):
+    scores = []
+    for (prediction, ground_truths) in zip(predictions, answers):
+        score = 0.
+        if dataset in ["trec", "tqa", "samsum", "lsht"]:
+            prediction = prediction.lstrip('\n').split('\n')[0]
+        for ground_truth in ground_truths:
+            score = max(score, dataset2metric[dataset](prediction, ground_truth, all_classes=all_classes))
+        scores += [score]
+    
+    return scores
 def chatgpt_auto_eval(gt_result, cachegen_result):
     print("--------------- Start auto-evaluation, you should verify it does this correctly --------------")
     correct = 0
@@ -65,10 +118,12 @@ def to_blob(kv_tuples):
 def calculate_acc(dataset_name, prediction, label):
     if dataset_name == "longchat":
         return chatgpt_auto_eval(label[0], prediction)
-        # if label[0].lower() in prediction.lower():
-        #     return 1
-        # else:
-        #     return 0 
+    elif dataset_name == "nqa":
+        scores = scorer_e(dataset_name, [prediction], [label['answers']], [label['all_classes']])
+        return scores[0]
+    elif dataset_name == "tqa":
+        scores = scorer_e(dataset_name, [prediction], [label['answers']], [label['all_classes']])
+        return scores[0]
     
     
 def define_model_and_tokenizer(model_id, num_gpus=1, max_gpu_memory=48):
@@ -149,10 +204,6 @@ def default_quantization(kv, bins):
         value, _ = torch_quant(bins, value)
         quant_key = key.reshape(kv[i][0].shape[-2], kv[i][0].shape[-3], kv[i][0].shape[-1]).permute((1, 0, 2))
         quant_value = value.reshape(kv[i][1].shape[-2], kv[i][1].shape[-3], kv[i][1].shape[-1]).permute((1, 0, 2))
-        # quant_key, _ = torch_quant(bins, key.flatten())
-        # quant_value, _ = torch_quant(bins, value.flatten())
-        # quant_key = quant_key.reshape(key.shape)
-        # quant_value = quant_value.reshape(value.shape)
         kv[i][0] = quant_key
         kv[i][1] = quant_value
     kv = kv[:, :, :, :-10]
