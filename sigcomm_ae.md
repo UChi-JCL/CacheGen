@@ -2,6 +2,8 @@ In this section, we provide the scripts for running the experiments in Figure 8/
 Note that for the artifact evaluation, we only provided **a small subset** of data points for easier testing. 
 
 ### Mistral-7B
+
+#### CacheGen 
 Before running the encoder of CacheGen, first runs the following code to generate the KV caches. The following code generates the KV caches for the **LongChat dataset** (in Fig. 8/9) on Mistral-7B model.
 Note that this assumes you have **one A40 GPU with 48GB GPU memeory**. 
 
@@ -20,6 +22,17 @@ export SAVE_DIR=.
 bash scripts/7b.sh longchat 1
 ```
 This will output the accuracy and size of KV cache on the LongChat dataset. 
+
+#### Baselines
+
+To run the code of quantization and vanilla LLM inference w/o any compression, run the following, which will output the accuracy and size of KV cache on the LongChat dataset (you will need to have OPENAI api key): 
+
+```
+bash scripts/7b_baseline.sh longchat 1 
+```
+This will output the accuracy and size of KV cache on the LongChat dataset. 
+
+
 
 ### Llama-70B
 
@@ -40,16 +53,50 @@ bash scripts/70b.sh longchat 1
 This will output the accuracy and size of KV cache on the LongChat dataset. 
 
 
+Similarly, to run the code for the baselines on longchat, run the following code:
+
+```
+bash scripts/70b_baseline.sh longchat 1 
+```
+
 To run with the **NarrativeQA** dataset, run the following code:
 ```
 export SAVE_DIR=.
 bash scripts/70b.sh nqa 1
 ```
-This will output the accuracy and size of KV cache on the NarrativeQA dataset. 
+This will output the F1 score and size of KV cache on the NarrativeQA dataset. 
+
+To run the baselines on NarrativeQA, run the following code:
+
+```
+export SAVE_DIR=.
+bash scripts/70b_baseline.sh nqa 1
+```
+This will output the F1 score and size of KV cache on NarrativeQA dataset. 
+
 
 To run with the **TriviaQA** dataset, run the following code:
 ```
 export SAVE_DIR=.
 bash scripts/70b.sh tqa 1
 ```
-This will output the accuracy and size of KV cache on the TriviaQA dataset. 
+This will output the F1 score and size of KV cache on the TriviaQA dataset. 
+
+
+To run the baselines on TriviaQA, run the following code:
+
+```
+export SAVE_DIR=.
+bash scripts/70b_baseline.sh tqa 1
+```
+This will output the F1 score and size of KV cache on TriviaQA dataset. 
+
+
+### Adaptation
+
+To run the adaptation algorithm of CacheGen's streamer, run the following code:
+
+```
+export SAVE_DIR=.
+bash scripts/adapt.sh 
+```

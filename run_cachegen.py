@@ -40,7 +40,7 @@ if __name__ == "__main__":
         os.makedirs(args.results_dir, exist_ok=True)
     # Read data from jsonl
     data =  load_testcases(DATASET_TO_PATH[args.dataset_name])
-    
+    os.environ["QUANT_LEVEL"] = "2"
     kv_tokens = []
     # Start encoding
     layer_to_device_id = {}
@@ -89,6 +89,10 @@ if __name__ == "__main__":
                 average_acc += [metric]
         if args.dataset_name == "longchat":
             print(prediction, data[doc_id]['label'][0])
+    if args.dataset_name == "longchat":
+        metric_name = "accuracy"
+    else:
+        metric_name = "F1 score"
     if args.calculate_metric == 1:
-        print("Average accuracy is: ", np.mean(average_acc))
+        print(f"Average cachegen {metric_name} is: ", np.mean(average_acc))
     print(f"Average size of KV cache: {np.mean(avg_size)}MB")

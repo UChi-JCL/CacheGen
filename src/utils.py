@@ -10,6 +10,10 @@ import openai
 from collections import Counter
 import re 
 import string 
+import pickle
+from lmcache.config import LMCacheEngineConfig, LMCacheEngineMetadata
+import os
+from lmcache.storage_backend.serde.cachegen_decoder import CacheGenDeserializer
 def f1_score(prediction, ground_truth, **kwargs):
     common = Counter(prediction) & Counter(ground_truth)
     num_same = sum(common.values())
@@ -189,25 +193,62 @@ def torch_quant(bins: int, qA: torch.Tensor):
     
     x = (xq / C * max1).to(torch.float16)
     
-    return x, max1
+    return xq, max1
+def torch_dequant(bins: int, xq: torch.Tensor, max1: torch.Tensor):
+    """
+    Dequantize a quantized tensor
 
-def default_quantization(kv, bins):
+    Input:
+        bins: number of bins
+        xq: the quantized tensor
+        max1: the maximum value of the tensor
+
+    Returns:
+        x: the dequantized tensor
+    """
+    MAX = bins // 2 - 1
+    C = MAX
+    x = (xq / C * max1).to(torch.float16)
+    return x
+
+def default_quantization(kv, bins, layer_to_device_id):
     """ Quantize the key value tensors into tuple of key and value tensors
     """
     channels = kv.shape[-1] * kv.shape[-3]
+    max_tensors = None
     for i in range(len(kv)):
         key = kv[i][0]
         value = kv[i][1]
         key = key.permute((1, 0, 2)).reshape(kv.shape[-2], channels)
         value = value.permute((1, 0, 2)).reshape(value.shape[-2], channels)
-        key, _ = torch_quant(bins, key)
-        value, _ = torch_quant(bins, value)
+        key, maxk = torch_quant(bins, key)
+        value, maxv = torch_quant(bins, value)
         quant_key = key.reshape(kv[i][0].shape[-2], kv[i][0].shape[-3], kv[i][0].shape[-1]).permute((1, 0, 2))
         quant_value = value.reshape(kv[i][1].shape[-2], kv[i][1].shape[-3], kv[i][1].shape[-1]).permute((1, 0, 2))
         kv[i][0] = quant_key
         kv[i][1] = quant_value
-    kv = kv[:, :, :, :-10]
-    return tensor_to_tuple(kv)
+        concated_max = torch.cat((maxk.unsqueeze(0), maxv.unsqueeze(0)), dim=0)
+        if max_tensors is None:
+            max_tensors = concated_max.unsqueeze(0)
+        else:
+            max_tensors = torch.cat((max_tensors, concated_max.unsqueeze(0)), dim=0)
+    return kv.to(torch.int8), max_tensors
+
+def dequantize_kv(kv, max_tensors, args, layer_to_device_id):
+    channels = kv.shape[-1] * kv.shape[-3]
+    kv = kv.to(torch.float16)
+    for i in range(len(kv)):
+        key = kv[i][0]
+        value = kv[i][1]
+        key = key.permute((1, 0, 2)).reshape(kv.shape[-2], channels)
+        value = value.permute((1, 0, 2)).reshape(value.shape[-2], channels)
+        dequant_k = torch_dequant(args.bins, key, max_tensors[i][0])
+        dequant_v = torch_dequant(args.bins, value, max_tensors[i][1])
+        dequant_key = dequant_k.reshape(kv[i][0].shape[-2], kv[i][0].shape[-3], kv[i][0].shape[-1]).permute((1, 0, 2))
+        dequant_value = dequant_v.reshape(kv[i][1].shape[-2], kv[i][1].shape[-3], kv[i][1].shape[-1]).permute((1, 0, 2))
+        kv[i][0] = dequant_key
+        kv[i][1] = dequant_value
+    return tensor_to_tuple(kv, layer_to_device_id)
 
 def load_testcases(test_file):
     with open(test_file, 'r') as json_file:
@@ -219,3 +260,118 @@ def load_testcases(test_file):
         test_cases.append(test_case)
 
     return test_cases
+
+
+def bw_generator(num_chunks):
+    import numpy as np
+    import random
+    min = 0.1
+    max = 10
+    bw = np.zeros(num_chunks)
+    for i in range(num_chunks):
+        bw[i] = random.uniform(min, max)
+    return bw
+
+def profile(model, args):
+    st = time.monotonic()
+    input_ids = torch.randint(0, 32000, (1, args.chunk_size)).cuda()
+    
+    model.generate(input_ids,  do_sample=False,  max_new_tokens=1)
+    torch.cuda.synchronize()
+    return time.monotonic() - st
+
+
+def bw_generator(num_chunks):
+    import numpy as np
+    import random
+    min = 0.1
+    max = 10
+    bw = np.zeros(num_chunks)
+    for i in range(num_chunks):
+        bw[i] = random.uniform(min, max)
+    return bw
+
+def config_selection(all_bws, chunk_delay, args, length, doc_id):
+    num_chunks = round(length / args.chunk_size)
+    chunk_id = 0
+    ttft = 0
+    configs = []
+    for chunk_start in range(0, length, args.chunk_size):
+        bw = all_bws[chunk_id]
+        found_cache = False
+        
+        for quant_level in np.arange(3, 0, -1):
+            bytestream = pickle.load(open(f"{args.save_dir}/{doc_id}_{chunk_id}_{quant_level}.pkl", "rb"))
+            if len(bytestream) / 1e9 * 8 / bw < args.slo / num_chunks:
+                ttft += len(bytestream) / 1e9 * 8 / bw
+                found_cache = True
+                configs += [quant_level]
+                break
+        if not found_cache:
+            ttft += chunk_delay
+            configs += [0]
+        chunk_id += 1
+    return ttft, configs
+def merge_kv(left, right, free_left = False, free_right = False):
+    """
+    Merges two kv caches, returns a merged KV cache
+    A single KVCache is a tuple_32(tuple_2(torch.Tensor[bs, channels?, num_tokens, hidden_size]))
+
+    Input:
+    - left: the left kv cache, could be None
+    - right: the right kv cache
+
+    Returns: The merged kv cache. If left is None, returns right
+    """
+    if left is None:
+        return right
+    #assert len(left) == len(right)
+
+    def generator():
+        for left_layer, right_layer in zip(left, right):
+            yield (torch.cat([left_layer[0], right_layer[0]], dim = -2), torch.cat([left_layer[1], right_layer[1]], dim = -2))
+            if free_left:
+                del left_layer
+            if free_right:
+                del right_layer
+
+    return tuple(generator())
+def split_kv(kv, left: int, right: int):
+    """
+    Splits a kv cache into two kv caches
+    A single KVCache is a tuple_32(tuple_2(torch.Tensor[bs, channels?, num_tokens, hidden_size]))
+
+    Input:
+    - kv: the kv cache to be splitted
+    - split_index: the index to split the kv cache
+
+    Returns: a tuple of two kv caches
+    """
+    
+    new_kv = []
+    for i in range(len(kv)):
+        new_kv.append((kv[i][0][:, left:right].unsqueeze(0), 
+                       kv[i][1][:, left:right].unsqueeze(0)))
+    return tuple(new_kv)
+
+def merge(configs, args, doc_id, length, orig_kv = None, layer_to_device_id = None):
+    kv = []
+    chunk_id = 0
+    # simulation of the actual prefill
+    merged_kv = None
+    for chunk_start in range(0, length, args.chunk_size):
+        if chunk_start + args.chunk_size > length:
+            break
+        if configs[chunk_id] == 0:
+            loaded_kv = split_kv(orig_kv, chunk_start, chunk_start + args.chunk_size)
+        else:
+            os.environ["QUANT_LEVEL"] = str(configs[chunk_id])
+            loaded_kv = pickle.load(open(f"{args.save_dir}/{doc_id}_{chunk_id}_{configs[chunk_id]}.pkl", "rb"))
+            lmcache_config = LMCacheEngineConfig.from_defaults(chunk_size=args.chunk_size)
+            meta_data = LMCacheEngineMetadata(model_name=args.model_id, fmt="huggingface", world_size=1, worker_id=0)
+            deserializer = CacheGenDeserializer(lmcache_config, meta_data)
+            decoded_kv = deserializer.from_bytes(loaded_kv)
+            loaded_kv = tensor_to_tuple(decoded_kv, layer_to_device_id)
+        merged_kv = merge_kv(merged_kv, loaded_kv)
+        chunk_id += 1
+    return merged_kv

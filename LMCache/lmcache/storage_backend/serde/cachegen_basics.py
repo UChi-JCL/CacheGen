@@ -4,7 +4,7 @@ import pickle
 from dataclasses import dataclass
 from typing import List
 from lmcache.utils import _lmcache_nvtx_annotate
-
+import os
 CACHEGEN_GPU_MAX_TOKENS_PER_CHUNK = 256
 
 @dataclass
@@ -29,8 +29,46 @@ class CacheGenConfig:
                      "mistral-community/Mistral-7B-v0.2",
                       "lmsys/longchat-7b-16k"]
         family_70b = ["Yukang/LongAlpaca-70B-16k"]
-
-        if model_name in family_7b:
+        if "Mistral-7B" in model_name: # This is a hack for now
+            if os.environ["QUANT_LEVEL"] == "1":
+                return CacheGenConfig(
+                    key_first_layers=10,
+                    key_second_layers=20,
+                    key_third_layers=32,
+                    key_first_bins=16,
+                    key_second_bins=16,
+                    key_third_bins=12,
+                    value_first_layers=2,
+                    value_first_bins=16,
+                    value_second_bins=12
+                )
+            if os.environ["QUANT_LEVEL"] == "2":
+                return CacheGenConfig(
+                    key_first_layers=10,
+                    key_second_layers=20,
+                    key_third_layers=32,
+                    key_first_bins=32,
+                    key_second_bins=16,
+                    key_third_bins=16,
+                    value_first_layers=2,
+                    value_first_bins=32,
+                    value_second_bins=16
+                )
+            if os.environ["QUANT_LEVEL"] == "3":
+                return CacheGenConfig(
+                    key_first_layers=10,
+                    key_second_layers=20,
+                    key_third_layers=32,
+                    key_first_bins=32,
+                    key_second_bins=32,
+                    key_third_bins=32,
+                    value_first_layers=2,
+                    value_first_bins=32,
+                    value_second_bins=32
+                )
+            
+            
+        elif model_name in family_7b:
             return CacheGenConfig(
                 key_first_layers=10,
                 key_second_layers=20,
