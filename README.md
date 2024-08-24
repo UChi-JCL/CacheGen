@@ -5,7 +5,7 @@ The code structure is organized as follows:
 
 - ```LMCache```: The modules for KV cache encoding / decoding with CacheGen's customized codec 
 - ```test_data```: The example testing cases for CacheGen. 
-
+- ```src```: Some helper functions used by CacheGen (e.g., transforming tensor to tuple, transforming tuple to tensor etc.)
 
 ## Installation
 
@@ -23,4 +23,4 @@ python setup.py install
 Please refer to the page [sigcomm_ae.md](sigcomm_ae.md) for running examples for CacheGen. 
 
 ### Contact 
-Yuhan Liu (yuhanl@uchicago.edu), Yihua Cheng (yihua98@uchicago.edu) 
+Yuhan Liu (yuhanl@uchicago.edu)
