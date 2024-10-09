@@ -1,6 +1,8 @@
 # CacheGen: Fast Context Loading for Language Model Applications via KV Cache Streaming
 
-This is the code repo for [CacheGen: Fast Context Loading for Language Model Applications via KV Cache Streaming](https://arxiv.org/pdf/2310.07240.pdf). 
+**For the latest update and integration, please check out the [LMCache](https://github.com/LMCache/LMCache) project!**
+
+This is the code repo for [CacheGen: Fast Context Loading for Language Model Applications via KV Cache Streaming](https://arxiv.org/pdf/2310.07240.pdf) (SIGCOMM'24). 
 The code structure is organized as follows:
 
 - ```LMCache```: The modules for KV cache encoding / decoding with CacheGen's customized codec 
